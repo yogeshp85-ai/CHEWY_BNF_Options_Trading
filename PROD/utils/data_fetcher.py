@@ -170,7 +170,7 @@ def get_latest_data(
     pull_next_expiry: bool = False,
     num_days_history: int = 1,
     interval: str = DEFAULT_INTERVAL,
-    instruments_base_path: str = "DataFiles/Instruments",
+    instruments_base_path: str = "PROD/DataFiles/Instruments",
 ) -> None:
     """Fetch and store the latest OHLC data for BankNifty and/or Nifty options.
 
