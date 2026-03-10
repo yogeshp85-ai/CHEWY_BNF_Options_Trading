@@ -4,7 +4,7 @@ A Python/PySpark project for fetching, storing, and charting BankNifty (BNF) opt
 
 ---
 
-## Project Structure
+## Project Structure :
 
 ```
 Project1/
