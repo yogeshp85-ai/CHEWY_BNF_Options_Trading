@@ -445,21 +445,19 @@ def compute_analytics(
         df = df.withColumn("StopLoss", F.min("StopLoss").over(w_day))
 
         # Entry-allowed logic
-        df = (df
-            .withColumn("CE_close_On_Open", F.first("CE_close").over(w_day))
-            .withColumn("PE_close_On_Open", F.first("PE_close").over(w_day))
-            .withColumn(
-                "Open_Max_Close",
-                F.when(df.CE_close_On_Open >= df.PE_close_On_Open, df.CE_close_On_Open).otherwise(df.PE_close_On_Open),
-            )
-            .withColumn(
-                "EntryAllowed",
-                F.when(
-                    ((df.CE_close > df.Open_Max_Close) | (df.PE_close > df.Open_Max_Close))
-                    & (df.close > ((df.incremental_min_close + df.incremental_close_avg) / 2)),
-                    lit(None),
-                ).otherwise(df.close),
-            )
+        df = df.withColumn("CE_close_On_Open", F.first("CE_close").over(w_day))
+        df = df.withColumn("PE_close_On_Open", F.first("PE_close").over(w_day))
+        df = df.withColumn(
+            "Open_Max_Close",
+            F.when(F.col("CE_close_On_Open") >= F.col("PE_close_On_Open"), F.col("CE_close_On_Open")).otherwise(F.col("PE_close_On_Open")),
+        )
+        df = df.withColumn(
+            "EntryAllowed",
+            F.when(
+                ((F.col("CE_close") > F.col("Open_Max_Close")) | (F.col("PE_close") > F.col("Open_Max_Close")))
+                & (F.col("close") > ((F.col("incremental_min_close") + F.col("incremental_close_avg")) / 2)),
+                lit(None),
+            ).otherwise(F.col("close")),
         )
 
     # Convert to pandas
