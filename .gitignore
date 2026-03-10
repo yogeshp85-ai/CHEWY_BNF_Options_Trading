@@ -1,0 +1,62 @@
+# =============================================================================
+# CHEWY_BNF_Options_Trading — .gitignore
+# =============================================================================
+
+# --- Files with device-specific names (unsynced OneDrive copies) ---
+*MacBook Pro*
+
+# --- Credentials & secrets (NEVER commit these) ---
+.env
+config_local.py
+secrets.py
+*.pem
+*.key
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Jupyter Notebook checkpoints ---
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# --- PySpark / Hadoop ---
+spark-warehouse/
+derby.log
+metastore_db/
+
+# --- Data files (large; store separately) ---
+DataFiles/
+Chartsnapshots/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Logs ---
+*.log
+logs/

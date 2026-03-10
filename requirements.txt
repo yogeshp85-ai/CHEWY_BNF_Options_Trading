@@ -1,0 +1,30 @@
+# KiteConnect BankNifty Options Trading Project
+# Install with: pip install -r requirements.txt
+
+# Zerodha KiteConnect API client
+kiteconnect>=4.2.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0       # Parquet read/write support
+
+# PySpark (distributed processing)
+pyspark>=3.5.0
+
+# Authentication
+pyotp>=2.9.0          # TOTP 2FA
+requests>=2.31.0
+
+# Charting
+plotly>=5.18.0
+mplfinance>=0.12.10b0
+matplotlib>=3.7.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.25.0
+ipywidgets>=8.1.0
+
+# Utilities
+python-dotenv>=1.0.0  # Load .env file into environment
