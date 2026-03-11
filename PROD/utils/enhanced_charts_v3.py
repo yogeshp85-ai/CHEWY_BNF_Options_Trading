@@ -235,8 +235,25 @@ def plot_enhanced_chart_v3(
       5. Straddle Price/VWAP/OIWAP + PUT-CALL OI indicator pane (shared x)
       6. OHLC Candlestick + Volume
     """
+    import os
     is_straddle = ce_or_pe not in ("CE", "PE")
-    now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+    cur_dt = datetime.now()
+    now_str = cur_dt.strftime("%Y-%m-%d %I:%M %p")
+    today_str = cur_dt.strftime("%Y-%m-%d")
+    now_time_str = cur_dt.strftime("%H:%M")
+
+    # 📁 Setup ChartsSnapshots directory
+    snapshot_dir = os.path.join("ChartsSnapshots", today_str)
+    os.makedirs(snapshot_dir, exist_ok=True)
+
+    def save_fig(fig, base_name):
+        filename = f"{base_name}_{today_str}.png"
+        filepath = os.path.join(snapshot_dir, filename)
+        try:
+            fig.write_image(filepath, scale=1.5)
+        except Exception as e:
+            logger.error(f"Failed to save {filename}: {e}")
+
     title_base = f"Strike: ({strike_level_name}) / {strike}  —  {now_str}"
 
     df = _add_extra_analytics(df_pandas)
@@ -313,6 +330,7 @@ def plot_enhanced_chart_v3(
     _add_day_boundaries(fig1, boundary_x, [1, 1], [1, 2])
     _apply_dark_layout(fig1, f"Price & Signals — {title_base}", height=500, width=1400)
     fig1.show()
+    save_fig(fig1, "Straddle_Price_Signal")
 
     # ── Figure 2: CE vs PE Close  +  CE/PE ROC & Ratio (straddle only) ───
     if is_straddle:
@@ -368,6 +386,7 @@ def plot_enhanced_chart_v3(
         _add_day_boundaries(fig2a, boundary_x, [1, 1], [1, 2])
         _apply_dark_layout(fig2a, f"CE / PE — {title_base}", height=450, width=1400)
         fig2a.show()
+        save_fig(fig2a, "CE_vs_PE_Close")
 
     # ── Figure 3: Open Interest (PUT-CALL OI diff on secondary Y) ─────────
     oi_cols = 2 if is_straddle else 1
@@ -424,6 +443,7 @@ def plot_enhanced_chart_v3(
     _add_day_boundaries(fig2, boundary_x, [1] * oi_cols, list(range(1, oi_cols + 1)))
     _apply_dark_layout(fig2, f"Open Interest — {title_base}", height=400, width=1400)
     fig2.show()
+    save_fig(fig2, "Open_Interest")
 
     # ── Figure 3: PCR standalone chart ────────────────────────────────────
     if is_straddle and "oi_pcr" in df.columns:
@@ -470,6 +490,7 @@ def plot_enhanced_chart_v3(
                 line=dict(color=COLORS["day_boundary"], width=1.5, dash="dash"),
             )
         fig3.show()
+        save_fig(fig3, "PCR")
 
     # ── Figure 4: Straddle Price/VWAP/OIWAP + PUT-CALL OI indicator pane ─
     fig4 = make_subplots(
@@ -522,6 +543,7 @@ def plot_enhanced_chart_v3(
     )
     fig4.update_xaxes(tickangle=-45, nticks=20, row=2, col=1)
     fig4.show()
+    save_fig(fig4, "Straddle_Price_VWAP_OIWAP")
 
     # ── Figure 5: Candlestick + Volume ────────────────────────────────────
     fig5 = make_subplots(
@@ -550,6 +572,9 @@ def plot_enhanced_chart_v3(
     _apply_dark_layout(fig5, f"OHLC Candlestick — {title_base}", height=600, width=1400)
     fig5.update_xaxes(rangeslider_visible=False, row=1, col=1)
     fig5.show()
+    save_fig(fig5, "OHLC_Candlestick")
+
+    print(f"📸 Charts saved to {snapshot_dir}/ at {now_time_str}")
 
 
 # ---------------------------------------------------------------------------
