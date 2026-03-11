@@ -148,6 +148,7 @@ def _add_extra_analytics(df: pd.DataFrame) -> pd.DataFrame:
     if "CE_oi" in df.columns and "PE_oi" in df.columns:
         df["oi_pcr"] = (df["PE_oi"] / df["CE_oi"]).replace([np.inf, -np.inf], np.nan)
         df["oi_diff"] = df["PE_oi"] - df["CE_oi"]
+        df["oi_diff_avg"] = df["oi_diff"].rolling(window=21, min_periods=1).mean()
 
     # VWAP: cumulative(close × volume) / cumulative(volume)
     if "volume" in df.columns:
@@ -409,6 +410,10 @@ def plot_enhanced_chart_v3(
                 x=x, y=df["oi_diff"], mode="lines", name="PUT OI − CALL OI",
                 line=dict(color=COLORS["oi_diff"], width=1.5, dash="dash"),
             ), row=1, col=2, secondary_y=True)
+            fig2.add_trace(go.Scatter(
+                x=x, y=df["oi_diff_avg"], mode="lines", name="OI Diff AVG",
+                line=dict(color=COLORS["oi_avg"], width=1.5, dash="dot"),
+            ), row=1, col=2, secondary_y=True)
             fig2.update_yaxes(
                 title_text="PUT OI − CALL OI",
                 secondary_y=True, row=1, col=2,
@@ -498,6 +503,10 @@ def plot_enhanced_chart_v3(
             line=dict(color=COLORS["oi_diff"], width=1.5),
             fill="tozeroy",
             fillcolor="rgba(206,147,216,0.15)",
+        ), row=2, col=1)
+        fig4.add_trace(go.Scatter(
+            x=x, y=df["oi_diff_avg"], mode="lines", name="OI Diff AVG",
+            line=dict(color=COLORS["oi_avg"], width=1.5, dash="dot"),
         ), row=2, col=1)
         fig4.add_hline(
             y=0,
