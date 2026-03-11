@@ -1,7 +1,7 @@
 """
-enhanced_charts_v2.py
+enhanced_charts_v3.py
 =====================
-Enhanced Plotly visualisation for BankNifty options — Version 2.
+Enhanced Plotly visualisation for BankNifty options — Version 3.
 
 Chart layout (all figures rendered per refresh):
 
@@ -28,9 +28,9 @@ Loop control:
   - If called after the end time, runs exactly once then exits.
 
 Usage:
-    from utils.enhanced_charts_v2 import run_enhanced_chart_loop_v2
+    from utils.enhanced_charts_v2 import run_enhanced_chart_loop_v3
 
-    run_enhanced_chart_loop_v2(
+    run_enhanced_chart_loop_v3(
         spark, options_df,
         expiry=expiry_date,
         strike_level_name='ATM',
@@ -218,7 +218,7 @@ def _add_day_boundaries(fig: go.Figure, boundary_x: list, rows: list, cols: list
 # Main plotting function
 # ---------------------------------------------------------------------------
 
-def plot_enhanced_chart_v2(
+def plot_enhanced_chart_v3(
     df_pandas: pd.DataFrame,
     strike: float,
     strike_level_name: str,
@@ -547,7 +547,7 @@ def plot_enhanced_chart_v2(
 # High-level chart orchestrator
 # ---------------------------------------------------------------------------
 
-def get_enhanced_chart_v2(
+def get_enhanced_chart_v3(
     spark: SparkSession,
     options_df: DataFrame,
     expiry,
@@ -586,14 +586,14 @@ def get_enhanced_chart_v2(
     strike = df_pd.iloc[0]["strike"]
 
     clear_output(wait=True)
-    plot_enhanced_chart_v2(df_pd, strike, strike_level_name, ce_or_pe)
+    plot_enhanced_chart_v3(df_pd, strike, strike_level_name, ce_or_pe)
 
 
 # ---------------------------------------------------------------------------
 # Scheduled auto-refresh loop with optional time-based exit
 # ---------------------------------------------------------------------------
 
-def run_enhanced_chart_loop_v2(
+def run_enhanced_chart_loop_v3(
     spark: SparkSession,
     options_df: DataFrame,
     expiry,
@@ -634,7 +634,7 @@ def run_enhanced_chart_loop_v2(
         now_str = datetime.now().strftime("%H:%M")
         print(f"⚠️  Called after end time ({now_str}). Running once and exiting.")
         try:
-            get_enhanced_chart_v2(
+            get_enhanced_chart_v3(
                 spark=spark,
                 options_df=options_df,
                 expiry=expiry,
@@ -658,7 +658,7 @@ def run_enhanced_chart_loop_v2(
             raise KeyboardInterrupt  # bubble up to the while loop
 
         try:
-            get_enhanced_chart_v2(
+            get_enhanced_chart_v3(
                 spark=spark,
                 options_df=options_df,
                 expiry=expiry,
@@ -692,5 +692,5 @@ def run_enhanced_chart_loop_v2(
             logger.info("Enhanced chart v2 loop stopped.")
             break
         except Exception as exc:
-            logger.error("Unexpected error in enhanced chart v2 loop: %s", exc, exc_info=True)
+            logger.error("Unexpected error in enhanced chart v3 loop: %s", exc, exc_info=True)
             continue
