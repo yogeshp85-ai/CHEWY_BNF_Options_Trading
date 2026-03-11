@@ -227,11 +227,12 @@ def plot_enhanced_chart_v2(
     """Render all enhanced V2 charts.
 
     Figures:
-      1. Price & Signals (2×2)
-      2. Open Interest (1×2) — CE/PE OI with PUT-CALL OI diff on secondary Y
-      3. PCR standalone chart
-      4. Straddle Price/VWAP/OIWAP + PUT-CALL OI indicator pane (shared x)
-      5. OHLC Candlestick + Volume
+      1. Price & Signals (1 row × 2 cols): Straddle+BB+SL | ROC AVG+ROC_AVG_line
+      2. CE/PE panels (1 row × 2 cols, straddle only): CE/PE Close | CE/PE ROC+Ratio
+      3. Open Interest (1×2) — CE/PE OI with PUT-CALL OI diff on secondary Y
+      4. PCR standalone chart
+      5. Straddle Price/VWAP/OIWAP + PUT-CALL OI indicator pane (shared x)
+      6. OHLC Candlestick + Volume
     """
     is_straddle = ce_or_pe not in ("CE", "PE")
     now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
@@ -240,22 +241,17 @@ def plot_enhanced_chart_v2(
     df = _add_extra_analytics(df_pandas)
     x, boundary_x = _build_x_axis(df)
 
-    # ── Figure 1: Price & Signals (2 rows × 2 cols) ───────────────────────
-    subplot_titles_fig1 = (
-        ["Straddle Price & Signals", "ROC AVG",
-         "CE vs PE Close", "CE / PE ROC & Ratio"]
-        if is_straddle
-        else ["Price & Signals", "ROC AVG", "", ""]
-    )
+    # Compute ROC AVG rolling average (mirrors Straddle AVG logic: cumulative mean)
+    roc_avg_series = df["ROC_AVG_close"].expanding().mean()
+
+    # ── Figure 1: Straddle Price & Signals  +  ROC AVG (1 row × 2 cols) ──
     fig1 = make_subplots(
-        rows=2, cols=2,
-        row_heights=[0.55, 0.45],
-        subplot_titles=subplot_titles_fig1,
-        vertical_spacing=0.12,
+        rows=1, cols=2,
+        subplot_titles=["Straddle Price & Signals", "ROC AVG"],
         horizontal_spacing=0.06,
     )
 
-    # Row 1 Col 1 — Straddle close + BB + SL + AVG + Entry
+    # Col 1 — Straddle close + BB + SL + AVG + Entry
     fig1.add_trace(go.Scatter(
         x=x, y=df["bb_upper"], mode="lines", line=dict(width=0),
         showlegend=False, hoverinfo="skip",
@@ -298,7 +294,7 @@ def plot_enhanced_chart_v2(
             marker=dict(size=4, color=COLORS["entry_allowed"]),
         ), row=1, col=1)
 
-    # Row 1 Col 2 — ROC AVG only (no Premium Decay)
+    # Col 2 — ROC AVG + ROC AVG average line (mirrors Straddle AVG styling)
     fig1.add_trace(go.Scatter(
         x=x, y=[0] * len(df), mode="lines",
         line=dict(color=COLORS["midline"], width=1),
@@ -308,57 +304,71 @@ def plot_enhanced_chart_v2(
         x=x, y=df["ROC_AVG_close"], mode="lines", name="ROC AVG",
         line=dict(color=COLORS["roc_avg"], width=2),
     ), row=1, col=2)
+    fig1.add_trace(go.Scatter(
+        x=x, y=roc_avg_series, mode="lines", name="ROC AVG Line",
+        line=dict(color=COLORS["avg"], width=1.5, dash="dot"),
+    ), row=1, col=2)
 
-    # Row 2 — straddle only
+    _add_day_boundaries(fig1, boundary_x, [1, 1], [1, 2])
+    _apply_dark_layout(fig1, f"Price & Signals — {title_base}", height=500, width=1400)
+    fig1.show()
+
+    # ── Figure 2: CE vs PE Close  +  CE/PE ROC & Ratio (straddle only) ───
     if is_straddle:
+        fig2a = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=["CE vs PE Close", "CE / PE ROC & Ratio"],
+            horizontal_spacing=0.06,
+        )
+
         # Col 1: CE vs PE close
-        fig1.add_trace(go.Scatter(
+        fig2a.add_trace(go.Scatter(
             x=x, y=df["CE_close"], mode="lines", name="CALL",
             line=dict(color=COLORS["ce_close"], width=2),
-        ), row=2, col=1)
-        fig1.add_trace(go.Scatter(
+        ), row=1, col=1)
+        fig2a.add_trace(go.Scatter(
             x=x, y=df["PE_close"], mode="lines", name="PUT",
             line=dict(color=COLORS["pe_close"], width=2),
-        ), row=2, col=1)
-        fig1.add_trace(go.Scatter(
+        ), row=1, col=1)
+        fig2a.add_trace(go.Scatter(
             x=x, y=df["incremental_CE_close_avg"], mode="lines", name="CE AVG",
             line=dict(color=COLORS["ce_avg"], width=1, dash="dot"),
-        ), row=2, col=1)
-        fig1.add_trace(go.Scatter(
+        ), row=1, col=1)
+        fig2a.add_trace(go.Scatter(
             x=x, y=df["incremental_PE_close_avg"], mode="lines", name="PE AVG",
             line=dict(color=COLORS["pe_avg"], width=1, dash="dot"),
-        ), row=2, col=1)
+        ), row=1, col=1)
         if "Open_Max_Close" in df.columns:
-            fig1.add_trace(go.Scatter(
+            fig2a.add_trace(go.Scatter(
                 x=x, y=df["Open_Max_Close"], mode="lines", name="Open Max Close",
                 line=dict(color=COLORS["open_max_close"], width=2, dash="dashdot"),
-            ), row=2, col=1)
+            ), row=1, col=1)
 
         # Col 2: CE/PE ROC + Ratio
-        fig1.add_trace(go.Scatter(
+        fig2a.add_trace(go.Scatter(
             x=x, y=[0] * len(df), mode="lines",
             line=dict(color=COLORS["midline"], width=1),
             showlegend=False,
-        ), row=2, col=2)
-        fig1.add_trace(go.Scatter(
+        ), row=1, col=2)
+        fig2a.add_trace(go.Scatter(
             x=x, y=df["ROC_AVG_CE_close"], mode="lines", name="CE ROC AVG",
             line=dict(color=COLORS["ce_roc"], width=2),
-        ), row=2, col=2)
-        fig1.add_trace(go.Scatter(
+        ), row=1, col=2)
+        fig2a.add_trace(go.Scatter(
             x=x, y=df["ROC_AVG_PE_close"], mode="lines", name="PE ROC AVG",
             line=dict(color=COLORS["pe_roc"], width=2),
-        ), row=2, col=2)
+        ), row=1, col=2)
         if "ce_pe_ratio" in df.columns:
-            fig1.add_trace(go.Scatter(
+            fig2a.add_trace(go.Scatter(
                 x=x, y=df["ce_pe_ratio"], mode="lines", name="CE/PE Ratio",
                 line=dict(color=COLORS["ratio_line"], width=1.5, dash="dash"),
-            ), row=2, col=2)
+            ), row=1, col=2)
 
-    _add_day_boundaries(fig1, boundary_x, [1, 1, 2, 2], [1, 2, 1, 2])
-    _apply_dark_layout(fig1, f"Price & Signals — {title_base}", height=700, width=1400)
-    fig1.show()
+        _add_day_boundaries(fig2a, boundary_x, [1, 1], [1, 2])
+        _apply_dark_layout(fig2a, f"CE / PE — {title_base}", height=450, width=1400)
+        fig2a.show()
 
-    # ── Figure 2: Open Interest (PUT-CALL OI diff on secondary Y) ─────────
+    # ── Figure 3: Open Interest (PUT-CALL OI diff on secondary Y) ─────────
     oi_cols = 2 if is_straddle else 1
     oi_titles = (
         ["Combined OI", "CE / PE OI  (right axis = PUT−CALL OI)"]

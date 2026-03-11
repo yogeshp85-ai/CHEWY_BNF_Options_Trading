@@ -296,11 +296,13 @@ def run_data_loop(
     interval: str = DEFAULT_INTERVAL,
     loop_interval_minutes: int = 1,
     instruments_base_path: str = "DataFiles/Instruments",
+    end_hour: Optional[int] = None,
+    end_minute: Optional[int] = None,
 ) -> None:
     """Run the data pull in a continuous schedule loop.
 
     Calls get_latest_data() immediately, then schedules it to run every
-    `loop_interval_minutes` minutes indefinitely.
+    ``loop_interval_minutes`` minutes.
 
     The loop handles exceptions gracefully and continues running.
 
@@ -318,24 +320,62 @@ def run_data_loop(
     loop_interval_minutes : int
         How often (in minutes) to re-fetch data.
     instruments_base_path : str
+    end_hour : int, optional
+        24-hour clock hour at which the loop should stop (e.g. 15 for 3 PM).
+        Both ``end_hour`` and ``end_minute`` must be provided to enable
+        time-based exit; if either is None the loop runs indefinitely.
+    end_minute : int, optional
+        Minute at which the loop should stop (e.g. 30 for :30).
     """
-    def _job():
+    has_end_time = (end_hour is not None) and (end_minute is not None)
+
+    def _past_end_time() -> bool:
+        if not has_end_time:
+            return False
+        now = datetime.now()
+        return (now.hour, now.minute) >= (end_hour, end_minute)
+
+    def _end_time_str() -> str:
+        return f"{end_hour:02d}:{end_minute:02d}"
+
+    # If already past end time, run once and exit immediately
+    if has_end_time and _past_end_time():
+        now_str = datetime.now().strftime("%H:%M")
+        print(f"⚠️  run_data_loop called after end time ({now_str}). Running once and exiting.")
         clear_output(wait=True)
         print(f"Running data pull at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         try:
             get_latest_data(
-                kite=kite,
-                spark=spark,
-                banknifty=banknifty,
-                nifty=nifty,
-                custom_strike=custom_strike,
-                num_strikes=num_strikes,
-                pull_next_expiry=pull_next_expiry,
-                num_days_history=num_days_history,
-                interval=interval,
-                instruments_base_path=instruments_base_path,
+                kite=kite, spark=spark, banknifty=banknifty, nifty=nifty,
+                custom_strike=custom_strike, num_strikes=num_strikes,
+                pull_next_expiry=pull_next_expiry, num_days_history=num_days_history,
+                interval=interval, instruments_base_path=instruments_base_path,
             )
             print("✅ Data pull completed.")
+        except Exception as exc:
+            logger.error("Data pull failed: %s", exc, exc_info=True)
+            print(f"⚠️  Data pull error: {exc}")
+        return
+
+    def _job():
+        # Time-based exit check at the start of each iteration
+        if has_end_time and _past_end_time():
+            now_str = datetime.now().strftime("%H:%M")
+            print(f"⏹ run_data_loop stopped at {now_str} — end time {_end_time_str()} reached.")
+            raise KeyboardInterrupt
+
+        clear_output(wait=True)
+        print(f"Running data pull at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        try:
+            get_latest_data(
+                kite=kite, spark=spark, banknifty=banknifty, nifty=nifty,
+                custom_strike=custom_strike, num_strikes=num_strikes,
+                pull_next_expiry=pull_next_expiry, num_days_history=num_days_history,
+                interval=interval, instruments_base_path=instruments_base_path,
+            )
+            print("✅ Data pull completed.")
+        except KeyboardInterrupt:
+            raise
         except Exception as exc:
             logger.error("Data pull failed: %s", exc, exc_info=True)
             print(f"⚠️  Data pull error: {exc}")
@@ -353,10 +393,15 @@ def run_data_loop(
 
     while True:
         try:
+            # Time check before running pending jobs
+            if has_end_time and _past_end_time():
+                now_str = datetime.now().strftime("%H:%M")
+                print(f"⏹ run_data_loop stopped at {now_str} — end time {_end_time_str()} reached.")
+                break
             schedule.run_pending()
             time.sleep(5)
         except KeyboardInterrupt:
-            logger.info("Data loop stopped by user.")
+            logger.info("Data loop stopped.")
             break
         except Exception as exc:
             logger.error("Unexpected error in loop: %s", exc, exc_info=True)
