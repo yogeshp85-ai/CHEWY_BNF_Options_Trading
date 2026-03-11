@@ -42,7 +42,7 @@ from IPython.display import clear_output
 from plotly.subplots import make_subplots
 from pyspark.sql import DataFrame, SparkSession
 
-from utils1.chart_utils import compute_analytics, get_Strike_OHLC_data
+from utils.chart_utils import compute_analytics, get_Strike_OHLC_data
 
 logger = logging.getLogger(__name__)
 
