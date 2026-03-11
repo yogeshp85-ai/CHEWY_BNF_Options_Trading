@@ -50,6 +50,7 @@ metastore_db/
 # --- Data files (large; store separately) ---
 DataFiles/
 Chartsnapshots/
+ChartsSnapshots/
 
 # --- IDE ---
 .vscode/

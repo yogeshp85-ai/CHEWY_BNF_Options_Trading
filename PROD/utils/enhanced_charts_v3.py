@@ -236,6 +236,8 @@ def plot_enhanced_chart_v3(
       6. OHLC Candlestick + Volume
     """
     import os
+    from PIL import Image
+
     is_straddle = ce_or_pe not in ("CE", "PE")
     cur_dt = datetime.now()
     now_str = cur_dt.strftime("%Y-%m-%d %I:%M %p")
@@ -245,14 +247,44 @@ def plot_enhanced_chart_v3(
     # 📁 Setup ChartsSnapshots directory
     snapshot_dir = os.path.join("ChartsSnapshots", today_str)
     os.makedirs(snapshot_dir, exist_ok=True)
+    saved_images_paths = []
 
     def save_fig(fig, base_name):
         filename = f"{base_name}_{today_str}.png"
         filepath = os.path.join(snapshot_dir, filename)
         try:
             fig.write_image(filepath, scale=1.5)
+            saved_images_paths.append(filepath)
         except Exception as e:
             logger.error(f"Failed to save {filename}: {e}")
+
+    def stitch_images(image_paths, output_filename):
+        if not image_paths:
+            return
+        try:
+            images = [Image.open(p) for p in image_paths]
+            widths, heights = zip(*(i.size for i in images))
+            total_width = max(widths)
+            total_height = sum(heights)
+            
+            combined_img = Image.new('RGB', (total_width, total_height))
+            y_offset = 0
+            for im in images:
+                combined_img.paste(im, (0, y_offset))
+                y_offset += im.size[1]
+                
+            out_path = os.path.join(snapshot_dir, output_filename)
+            combined_img.save(out_path)
+            
+            # Clean up individual frames since they are now stitched
+            for p in image_paths:
+                try:
+                    os.remove(p)
+                except OSError as e:
+                    logger.warning(f"Failed to remove intermediate image {p}: {e}")
+            
+        except Exception as e:
+            logger.error(f"Failed to stitch images: {e}")
 
     title_base = f"Strike: ({strike_level_name}) / {strike}  —  {now_str}"
 
@@ -573,6 +605,9 @@ def plot_enhanced_chart_v3(
     fig5.update_xaxes(rangeslider_visible=False, row=1, col=1)
     fig5.show()
     save_fig(fig5, "OHLC_Candlestick")
+
+    # Vertical stitching
+    stitch_images(saved_images_paths, f"Combined_Dashboard_{today_str}.png")
 
     print(f"📸 Charts saved to {snapshot_dir}/ at {now_time_str}")
 
