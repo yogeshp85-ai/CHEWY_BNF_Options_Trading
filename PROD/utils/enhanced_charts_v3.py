@@ -248,9 +248,8 @@ def _add_last_value_annotations(
     if not valid_entries:
         return
     positions.sort(key=lambda t: t[0])
-    min_gap = (max(p[0] for p in positions) - min(p[0] for p in positions)) * 0.04
-    if min_gap == 0:
-        min_gap = 1
+    y_range = max(p[0] for p in positions) - min(p[0] for p in positions)
+    min_gap = y_range * 0.08 if y_range > 0 else 1
     adjusted_y = {}
     prev_y = None
     for raw_y, orig_idx in positions:
@@ -265,7 +264,7 @@ def _add_last_value_annotations(
         display_val = f"{last_y:,.2f}" if abs(last_y) < 1e6 else f"{last_y:,.0f}"
         label_text = f"<b>{display_val}</b>"
         ay_shift = adjusted_y.get(idx, last_y)
-        y_offset = int((ay_shift - last_y) / (min_gap if min_gap else 1) * 12)
+        y_offset = int((ay_shift - last_y) / (min_gap if min_gap else 1) * 18)
 
         ann_kwargs = dict(
             x=last_x,
@@ -563,6 +562,7 @@ def plot_enhanced_chart_v3(
                 title_text="PUT OI − CALL OI",
                 secondary_y=True, row=1, col=2,
                 showgrid=False,
+                rangemode="normal",
                 tickfont=dict(size=9, color=COLORS["oi_diff"]),
             )
 
@@ -689,6 +689,13 @@ def plot_enhanced_chart_v3(
         height=500, width=1400,
     )
     fig4.update_xaxes(tickangle=-45, nticks=20, row=2, col=1)
+    # Ensure PUT OI − CALL OI y-axis auto-ranges to data, not anchored to 0
+    if is_straddle and "oi_diff" in df.columns:
+        diff_vals = pd.concat([df["oi_diff"].dropna(), df["oi_diff_avg"].dropna()])
+        if len(diff_vals) > 0:
+            d_min, d_max = float(diff_vals.min()), float(diff_vals.max())
+            pad = (d_max - d_min) * 0.05 if d_max != d_min else 1
+            fig4.update_yaxes(range=[d_min - pad, d_max + pad], row=2, col=1)
 
     # Last-value annotations — Fig 4, Row 2 (PUT OI − CALL OI)
     if is_straddle and "oi_diff" in df.columns:
