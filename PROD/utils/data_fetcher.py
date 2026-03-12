@@ -23,6 +23,7 @@ Usage:
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -238,32 +239,83 @@ def get_latest_data(
             spark, nifty_options, nifty_atm, nifty_expiry, 50, num_strikes
         )
 
-        bnf_tokens   = bnf_opts.select("instrument_token").orderBy("instrument_token").collect()
-        nifty_tokens = nifty_opts.select("instrument_token").orderBy("instrument_token").collect()
+        bnf_tokens   = [row["instrument_token"] for row in
+                        bnf_opts.select("instrument_token").orderBy("instrument_token").collect()] if banknifty else []
+        nifty_tokens = [row["instrument_token"] for row in
+                        nifty_opts.select("instrument_token").orderBy("instrument_token").collect()] if nifty else []
 
-        print(f"Pulling {label} Expiry ({bnf_expiry}) data…")
+        all_tasks = (
+            [(t, bnf_expiry, "BNF") for t in bnf_tokens]
+            + [(t, nifty_expiry, "NIFTY") for t in nifty_tokens]
+        )
 
-        for i, row in enumerate(bnf_tokens):
-            if not banknifty:
-                break
-            token = row["instrument_token"]
-            try:
-                df = get_historical_data(kite, spark, token, from_date, to_date, interval)
-                write_historical_data(df, bnf_expiry, token, to_date, interval)
-            except Exception as exc:
-                logger.warning("BNF token %s failed: %s", token, exc)
+        if not all_tasks:
+            return
 
-        for i, row in enumerate(nifty_tokens):
-            if not nifty:
-                break
-            token = row["instrument_token"]
-            try:
-                df = get_historical_data(kite, spark, token, from_date, to_date, interval)
-                write_historical_data(df, nifty_expiry, token, to_date, interval)
-            except Exception as exc:
-                logger.warning("Nifty token %s failed: %s", token, exc)
+        print(f"Pulling {label} Expiry ({bnf_expiry}) — {len(all_tasks)} tokens in parallel…")
+        pull_start = time.time()
 
-        print(f"{label} Expiry data complete.")
+        # --- Phase 1: Parallel API fetch with rate-limiting ------------------
+        def _fetch_raw_with_retry(token: int, max_retries: int = 3):
+            """Fetch raw candle data with retry on rate-limit (429) errors."""
+            for attempt in range(max_retries):
+                try:
+                    return kite.historical_data(token, from_date, to_date, interval, oi=True)
+                except Exception as exc:
+                    if "Too many requests" in str(exc) and attempt < max_retries - 1:
+                        wait = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s
+                        time.sleep(wait)
+                    else:
+                        raise
+
+        fetched = {}   # token -> raw_data
+        failed  = []   # tokens that errored
+        max_workers = min(6, len(all_tasks))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_meta = {}
+            for token, expiry_dt, idx_label in all_tasks:
+                f = executor.submit(_fetch_raw_with_retry, token)
+                future_to_meta[f] = (token, expiry_dt, idx_label)
+                time.sleep(0.1)  # throttle submissions to avoid burst
+
+            for future in as_completed(future_to_meta):
+                token, expiry_dt, idx_label = future_to_meta[future]
+                try:
+                    raw_data = future.result()
+                    fetched[token] = (raw_data, expiry_dt)
+                except Exception as exc:
+                    logger.warning("%s token %s fetch failed: %s", idx_label, token, exc)
+                    failed.append(token)
+
+        fetch_elapsed = time.time() - pull_start
+        logger.info(
+            "Parallel fetch done: %d OK, %d failed in %.1fs",
+            len(fetched), len(failed), fetch_elapsed,
+        )
+
+        # --- Phase 2: Parallel Spark writes (each token → different path) ---
+        def _spark_write(token_data):
+            token, (raw_data, expiry_dt) = token_data
+            df = spark.createDataFrame(raw_data, schema=OHLC_SCHEMA)
+            df = df.orderBy(asc("date")).withColumn("day", col("date").cast("date"))
+            write_historical_data(df, expiry_dt, token, to_date, interval)
+
+        write_workers = min(6, len(fetched))
+        with ThreadPoolExecutor(max_workers=write_workers) as executor:
+            write_futures = {
+                executor.submit(_spark_write, item): item[0]
+                for item in fetched.items()
+            }
+            for future in as_completed(write_futures):
+                tok = write_futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.warning("Spark write for token %s failed: %s", tok, exc)
+
+        total_elapsed = time.time() - pull_start
+        print(f"{label} Expiry data complete — {len(fetched)} tokens in {total_elapsed:.1f}s")
 
     _pull_expiry(
         bnf_expiries["current_week"],

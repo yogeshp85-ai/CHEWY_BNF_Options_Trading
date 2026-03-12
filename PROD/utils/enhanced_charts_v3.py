@@ -783,6 +783,7 @@ def get_enhanced_chart_v3(
     historical_base_path: str = "DataFiles/HistoricalData",
 ) -> None:
     """Fetch data, compute analytics, and render enhanced v2 charts."""
+    t0 = time.time()
     cols_single = ["date", "open", "high", "low", "close", "oi", "strike", "day_num"]
     cols_straddle = [
         "date", "open", "high", "low", "close",
@@ -804,12 +805,22 @@ def get_enhanced_chart_v3(
         num_days_back=num_days_back,
         historical_base_path=historical_base_path,
     ).select(select_cols)
+    t1 = time.time()
 
     df_pd = compute_analytics(spark, raw_df, ce_or_pe, is_latest_day)
+    t2 = time.time()
+
     strike = df_pd.iloc[0]["strike"]
 
     clear_output(wait=True)
     plot_enhanced_chart_v3(df_pd, strike, strike_level_name, ce_or_pe)
+    t3 = time.time()
+
+    logger.info(
+        "⏱ Timing — Data: %.1fs | Analytics: %.1fs | Plot: %.1fs | Total: %.1fs",
+        t1 - t0, t2 - t1, t3 - t2, t3 - t0,
+    )
+    print(f"⏱ Data: {t1-t0:.1f}s | Analytics: {t2-t1:.1f}s | Plot: {t3-t2:.1f}s | Total: {t3-t0:.1f}s")
 
 
 # ---------------------------------------------------------------------------
