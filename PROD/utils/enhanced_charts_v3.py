@@ -215,6 +215,81 @@ def _add_day_boundaries(fig: go.Figure, boundary_x: list, rows: list, cols: list
             )
 
 
+def _add_last_value_annotations(
+    fig: go.Figure,
+    series_list: list,
+    row: int = 1,
+    col: int = 1,
+    secondary_y: bool = False,
+) -> None:
+    """Annotate the last data-point value for each series on the chart.
+
+    Parameters
+    ----------
+    series_list : list[tuple]
+        Each element is (x_values, y_values, color, label_prefix).
+        ``label_prefix`` is only used if you want a prefix before the number;
+        pass "" to label with just the number.
+    """
+    # Collect the y-positions so we can nudge overlapping labels
+    positions = []  # (raw_y, index)
+    valid_entries = []
+    for idx, (xv, yv, color, _prefix) in enumerate(series_list):
+        if yv is None or len(yv) == 0:
+            continue
+        last_y = yv.iloc[-1] if hasattr(yv, "iloc") else yv[-1]
+        if last_y is None or (isinstance(last_y, float) and np.isnan(last_y)):
+            continue
+        last_x = xv[-1] if not hasattr(xv, "iloc") else xv.iloc[-1]
+        positions.append((float(last_y), len(valid_entries)))
+        valid_entries.append((last_x, float(last_y), color, _prefix))
+
+    # Sort by y-value and nudge labels that are too close
+    if not valid_entries:
+        return
+    positions.sort(key=lambda t: t[0])
+    min_gap = (max(p[0] for p in positions) - min(p[0] for p in positions)) * 0.04
+    if min_gap == 0:
+        min_gap = 1
+    adjusted_y = {}
+    prev_y = None
+    for raw_y, orig_idx in positions:
+        if prev_y is not None and abs(raw_y - prev_y) < min_gap:
+            nudged = prev_y + min_gap
+        else:
+            nudged = raw_y
+        adjusted_y[orig_idx] = nudged
+        prev_y = nudged
+
+    for idx, (last_x, last_y, color, _prefix) in enumerate(valid_entries):
+        display_val = f"{last_y:,.2f}" if abs(last_y) < 1e6 else f"{last_y:,.0f}"
+        label_text = f"<b>{display_val}</b>"
+        ay_shift = adjusted_y.get(idx, last_y)
+        y_offset = int((ay_shift - last_y) / (min_gap if min_gap else 1) * 12)
+
+        ann_kwargs = dict(
+            x=last_x,
+            y=last_y,
+            text=label_text,
+            showarrow=False,
+            xanchor="left",
+            yanchor="middle",
+            xshift=8,
+            yshift=y_offset,
+            font=dict(size=10, color=color, family="monospace"),
+            bgcolor="rgba(255,255,255,0.15)",
+            borderpad=2,
+        )
+        # Subplot figures support row/col; plain go.Figure() does not.
+        try:
+            fig.add_annotation(row=row, col=col, secondary_y=secondary_y, **ann_kwargs)
+        except Exception:
+            # Fallback for non-subplot figures: append directly to layout
+            fig.layout.annotations = list(fig.layout.annotations) + [
+                go.layout.Annotation(**ann_kwargs)
+            ]
+
+
 # ---------------------------------------------------------------------------
 # Main plotting function
 # ---------------------------------------------------------------------------
@@ -361,6 +436,16 @@ def plot_enhanced_chart_v3(
 
     _add_day_boundaries(fig1, boundary_x, [1, 1], [1, 2])
     _apply_dark_layout(fig1, f"Price & Signals — {title_base}", height=500, width=1400)
+
+    # Last-value annotations — Fig 1, Col 1 (Straddle Price)
+    _add_last_value_annotations(fig1, [
+        (x, df["close"], COLORS["straddle_close"], ""),
+    ], row=1, col=1)
+    # Last-value annotations — Fig 1, Col 2 (ROC AVG)
+    _add_last_value_annotations(fig1, [
+        (x, df["ROC_AVG_close"], COLORS["roc_avg"], ""),
+    ], row=1, col=2)
+
     fig1.show()
     save_fig(fig1, "Straddle_Price_Signal")
 
@@ -417,6 +502,13 @@ def plot_enhanced_chart_v3(
 
         _add_day_boundaries(fig2a, boundary_x, [1, 1], [1, 2])
         _apply_dark_layout(fig2a, f"CE / PE — {title_base}", height=450, width=1400)
+
+        # Last-value annotations — Fig 2a, Col 1 (CE vs PE Close)
+        _add_last_value_annotations(fig2a, [
+            (x, df["CE_close"], COLORS["ce_close"], ""),
+            (x, df["PE_close"], COLORS["pe_close"], ""),
+        ], row=1, col=1)
+
         fig2a.show()
         save_fig(fig2a, "CE_vs_PE_Close")
 
@@ -436,6 +528,8 @@ def plot_enhanced_chart_v3(
         rows=1, cols=oi_cols,
         subplot_titles=oi_titles,
         specs=oi_specs,
+        horizontal_spacing=0.06,
+        column_widths=[0.5, 0.5] if is_straddle else [1.0],
     )
 
     fig2.add_trace(go.Scatter(
@@ -474,6 +568,23 @@ def plot_enhanced_chart_v3(
 
     _add_day_boundaries(fig2, boundary_x, [1] * oi_cols, list(range(1, oi_cols + 1)))
     _apply_dark_layout(fig2, f"Open Interest — {title_base}", height=400, width=1400)
+
+    # Last-value annotations — Fig 2, Col 1 (Combined OI)
+    _add_last_value_annotations(fig2, [
+        (x, df["oi"], COLORS["oi_combined"], ""),
+    ], row=1, col=1)
+    # Last-value annotations — Fig 2, Col 2 (CE/PE OI + OI diff)
+    if is_straddle:
+        _add_last_value_annotations(fig2, [
+            (x, df["CE_oi"], COLORS["ce_oi"], ""),
+            (x, df["PE_oi"], COLORS["pe_oi"], ""),
+        ], row=1, col=2)
+        if "oi_diff" in df.columns:
+            _add_last_value_annotations(fig2, [
+                (x, df["oi_diff"], COLORS["oi_diff"], ""),
+                (x, df["oi_diff_avg"], COLORS["oi_avg"], ""),
+            ], row=1, col=2, secondary_y=True)
+
     fig2.show()
     save_fig(fig2, "Open_Interest")
 
@@ -521,6 +632,12 @@ def plot_enhanced_chart_v3(
                 x=bx,
                 line=dict(color=COLORS["day_boundary"], width=1.5, dash="dash"),
             )
+
+        # Last-value annotation — PCR
+        _add_last_value_annotations(fig3, [
+            (x, df["oi_pcr"], COLORS["oi_pcr"], ""),
+        ])
+
         fig3.show()
         save_fig(fig3, "PCR")
 
@@ -554,8 +671,6 @@ def plot_enhanced_chart_v3(
         fig4.add_trace(go.Scatter(
             x=x, y=df["oi_diff"], mode="lines", name="PUT OI − CALL OI",
             line=dict(color=COLORS["oi_diff"], width=1.5),
-            fill="tozeroy",
-            fillcolor="rgba(206,147,216,0.15)",
         ), row=2, col=1)
         fig4.add_trace(go.Scatter(
             x=x, y=df["oi_diff_avg"], mode="lines", name="OI Diff AVG",
@@ -574,6 +689,14 @@ def plot_enhanced_chart_v3(
         height=500, width=1400,
     )
     fig4.update_xaxes(tickangle=-45, nticks=20, row=2, col=1)
+
+    # Last-value annotations — Fig 4, Row 2 (PUT OI − CALL OI)
+    if is_straddle and "oi_diff" in df.columns:
+        _add_last_value_annotations(fig4, [
+            (x, df["oi_diff"], COLORS["oi_diff"], ""),
+            (x, df["oi_diff_avg"], COLORS["oi_avg"], ""),
+        ], row=2, col=1)
+
     fig4.show()
     save_fig(fig4, "Straddle_Price_VWAP_OIWAP")
 
@@ -603,6 +726,30 @@ def plot_enhanced_chart_v3(
     _add_day_boundaries(fig5, boundary_x, [1, 2], [1, 1])
     _apply_dark_layout(fig5, f"OHLC Candlestick — {title_base}", height=600, width=1400)
     fig5.update_xaxes(rangeslider_visible=False, row=1, col=1)
+
+    # Candle count summary box
+    total_candles = len(df)
+    green_candles = int((df["close"] >= df["open"]).sum())
+    red_candles = total_candles - green_candles
+    summary_text = (
+        f"Total : {total_candles}<br>"
+        f"<span style='color:{COLORS['candle_up']}'>Green : {green_candles}</span><br>"
+        f"<span style='color:{COLORS['candle_down']}'>Red   : {red_candles}</span>"
+    )
+    fig5.add_annotation(
+        text=summary_text,
+        xref="paper", yref="paper",
+        x=0.01, y=0.98,
+        xanchor="left", yanchor="top",
+        showarrow=False,
+        font=dict(size=11, color=COLORS["text"], family="monospace"),
+        bgcolor="rgba(30,30,47,0.80)",
+        bordercolor="#444",
+        borderwidth=1,
+        borderpad=6,
+        align="left",
+    )
+
     fig5.show()
     save_fig(fig5, "OHLC_Candlestick")
 
