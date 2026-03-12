@@ -294,14 +294,25 @@ def get_latest_data(
             len(fetched), len(failed), fetch_elapsed,
         )
 
-        # --- Phase 2: Sequential Spark writes (fast, not thread-safe) ------
-        for token, (raw_data, expiry_dt) in fetched.items():
-            try:
-                df = spark.createDataFrame(raw_data, schema=OHLC_SCHEMA)
-                df = df.orderBy(asc("date")).withColumn("day", col("date").cast("date"))
-                write_historical_data(df, expiry_dt, token, to_date, interval)
-            except Exception as exc:
-                logger.warning("Spark write for token %s failed: %s", token, exc)
+        # --- Phase 2: Parallel Spark writes (each token → different path) ---
+        def _spark_write(token_data):
+            token, (raw_data, expiry_dt) = token_data
+            df = spark.createDataFrame(raw_data, schema=OHLC_SCHEMA)
+            df = df.orderBy(asc("date")).withColumn("day", col("date").cast("date"))
+            write_historical_data(df, expiry_dt, token, to_date, interval)
+
+        write_workers = min(6, len(fetched))
+        with ThreadPoolExecutor(max_workers=write_workers) as executor:
+            write_futures = {
+                executor.submit(_spark_write, item): item[0]
+                for item in fetched.items()
+            }
+            for future in as_completed(write_futures):
+                tok = write_futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.warning("Spark write for token %s failed: %s", tok, exc)
 
         total_elapsed = time.time() - pull_start
         print(f"{label} Expiry data complete — {len(fetched)} tokens in {total_elapsed:.1f}s")
