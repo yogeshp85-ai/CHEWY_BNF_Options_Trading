@@ -100,10 +100,6 @@ else
 // 5. PLOTTING & VISUALS
 // =========================================================================
 
-// Determine signal color and modify bar colors if toggled
-linecolor = Base_avg >= 0 ? green_color : red_color
-barcolor(color = ChangeBarColor ? linecolor : na)
-
 // Calculate Momentum MMI
 _negativeMMI = math.max(ta.highest(Base_avg, _length2), 0) - Base_avg
 _posetiveMMI = Base_avg - math.min(ta.lowest(Base_avg, _length2), 0)
@@ -111,13 +107,24 @@ _posetiveMMI = Base_avg - math.min(ta.lowest(Base_avg, _length2), 0)
 // Midpoint crossover line
 crosspoint = ta.valuewhen(ta.cross(_posetiveMMI, _negativeMMI), (_posetiveMMI + _negativeMMI) / 2, 0)
 
+
 // Plotting the Momentum lines
 plot(_negativeMMI, title='-ve MMI', color=red_color, linewidth=1)
-plot(crosspoint, title='+ve MMI Cross', color=color.blue, linewidth=1, style=plot.style_circles)
+plot(crosspoint, title='+ve MMI Cross', color=color.blue, linewidth=1)
 plot(_posetiveMMI, title='+ve MMI', color=green_color, linewidth=1)
 
 // Baseline constraint
 plot(0, title='Zero Line', color=color.yellow, linewidth=1)
+
+if(_posetiveMMI < _negativeMMI and Base_avg >= 0)
+    _negativeMMI := _negativeMMI + _posetiveMMI
+    _posetiveMMI := _negativeMMI - _posetiveMMI
+    _negativeMMI := _negativeMMI - _posetiveMMI
+
+// Determine signal color and modify bar colors if toggled
+// linecolor = Base_avg >= 0 ? green_color : red_color
+linecolor = _posetiveMMI >= _negativeMMI or Base_avg >= 0? green_color : red_color
+barcolor(color = ChangeBarColor ? linecolor : na)
 
 // =========================================================================
 // 6. TABLES & LABELS
