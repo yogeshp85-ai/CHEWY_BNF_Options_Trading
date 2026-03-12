@@ -175,8 +175,9 @@ def get_Strike_OHLC_data(
             .filter(options_df["Strike_level_Name"] == strike_level_name)
             .filter(options_df["instrument_type"] == ce_or_pe)
         )
-        token  = leg_df.collect()[0]["instrument_token"]
-        strike = leg_df.collect()[0]["strike"]
+        _row   = leg_df.collect()[0]
+        token  = _row["instrument_token"]
+        strike = _row["strike"]
 
         df = _read_parquet(token)
         df.createOrReplaceTempView("DF")
@@ -201,7 +202,6 @@ def get_Strike_OHLC_data(
                 "ohlc4",
                 spark_round((col("open") + col("high") + col("low") + col("close")) / 4, 2),
             )
-            .distinct()
         )
 
     else:
@@ -218,9 +218,11 @@ def get_Strike_OHLC_data(
             .filter(options_df["Strike_level_Name"] == strike_level_name)
             .filter(options_df["instrument_type"] == "PE")
         )
-        ce_token = ce_opts.collect()[0]["instrument_token"]
-        pe_token = pe_opts.collect()[0]["instrument_token"]
-        strike   = ce_opts.collect()[0]["strike"]
+        ce_row   = ce_opts.collect()[0]
+        pe_row   = pe_opts.collect()[0]
+        ce_token = ce_row["instrument_token"]
+        pe_token = pe_row["instrument_token"]
+        strike   = ce_row["strike"]
 
         ce_df = _read_parquet(ce_token).withColumn("instrument_type", lit("CE"))
         pe_df = _read_parquet(pe_token).withColumn("instrument_type", lit("PE"))
@@ -262,7 +264,6 @@ def get_Strike_OHLC_data(
                 "ohlc4",
                 spark_round((col("open") + col("high") + col("low") + col("close")) / 4, 2),
             )
-            .distinct()
         )
 
 
@@ -275,6 +276,7 @@ def get_ROC_added(df: DataFrame, col_name: str = "close", length: int = 20) -> D
     """Add a rolling Rate-of-Change (ROC) average column to the DataFrame.
 
     Computes the average percentage change over `length` periods.
+    Vectorized: builds the full expression in one pass instead of 20 loop iterations.
 
     Parameters
     ----------
@@ -290,25 +292,15 @@ def get_ROC_added(df: DataFrame, col_name: str = "close", length: int = 20) -> D
     DataFrame
         Input DataFrame with a new 'ROC_AVG_<col_name>' column added.
     """
-    from pyspark.sql.functions import lag
+    from pyspark.sql.functions import lag as spark_lag
 
     w = Window.partitionBy("strike").orderBy("rownum")
-    df = df.withColumn(f"ROC_AVG_{col_name}", lit(0))
-    roc_cols = []
+    # Build a single summed expression for all lags (no temp columns)
+    roc_sum = lit(0)
     for i in range(1, length + 1):
-        roc_col = f"_ROC_{i}"
-        df = df.withColumn(
-            roc_col,
-            (col(col_name) - lag(col(col_name), i).over(w))
-            / lag(col(col_name), i).over(w),
-        )
-        df = df.withColumn(
-            f"ROC_AVG_{col_name}",
-            col(f"ROC_AVG_{col_name}") + col(roc_col),
-        )
-        roc_cols.append(roc_col)
-    df = df.withColumn(f"ROC_AVG_{col_name}", col(f"ROC_AVG_{col_name}") / 2)
-    df = df.drop(*roc_cols)
+        lagged = spark_lag(col(col_name), i).over(w)
+        roc_sum = roc_sum + (col(col_name) - lagged) / lagged
+    df = df.withColumn(f"ROC_AVG_{col_name}", roc_sum / 2)
     return df
 
 
@@ -349,6 +341,7 @@ def compute_analytics(
         df = df.filter(df.CE_close.isNotNull() & df.PE_close.isNotNull())
 
     df = df.withColumn("rownum", monotonically_increasing_id())
+    df = df.cache()  # Prevent Spark plan rebuild during ROC computation
     df = get_ROC_added(df, col_name="close", length=20)
     if is_straddle:
         df = get_ROC_added(df, col_name="CE_close", length=20)
