@@ -1,0 +1,134 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TradeEasyWithYogesh
+//@version=6
+
+indicator('TEWY - Magic Momentum Comparison', 'TEWY - MMI Comparison', overlay = false, max_bars_back = 1000)
+
+// =========================================================================
+// 1. INPUTS
+// =========================================================================
+
+// --- Base Settings ---
+src = input(defval = close, title = 'Source')
+_length1 = input(defval = 20, title = 'Calculation Length')
+_length2 = input(defval = 21, title = 'High Low Length')
+
+// --- Primary And Secondary Index ---
+UsePrimaryIndex_O = input.string(defval = 'Yes', title = 'Use Primary Index', inline = '#07', options = ['Yes', 'No'], group = 'Primary And Secondary Index')
+PrimaryIndex = input.symbol(defval = 'USDINR1!', title = '', inline = '#07', group = 'Primary And Secondary Index')
+PrimaryIndex_TF = input.timeframe(defval = '', title = ' TF ', inline = '#07', group = 'Primary And Secondary Index')
+
+UseSecondaryIndex_O = input.string(defval = 'No', title = 'Use Secondary Index', inline = '#08', options = ['Yes', 'No'], group = 'Primary And Secondary Index')
+SecondaryIndex = input.symbol(defval = 'NIFTY', title = '', inline = '#08', group = 'Primary And Secondary Index')
+SecondaryIndex_TF = input.timeframe(defval = '', title = ' TF ', inline = '#08', group = 'Primary And Secondary Index')
+
+UseThirdIndex_O = input.string(defval = 'No', title = 'Use Third Index', inline = '#09', options = ['Yes', 'No'], group = 'Primary And Secondary Index')
+ThirdIndex = input.symbol(defval = 'NIFTY', title = '', inline = '#09', group = 'Primary And Secondary Index')
+ThirdIndex_TF = input.timeframe(defval = '', title = ' TF ', inline = '#09', group = 'Primary And Secondary Index')
+
+UseForthIndex_O = input.string(defval = 'No', title = 'Use Forth Index', inline = '#10', options = ['Yes', 'No'], group = 'Primary And Secondary Index')
+ForthIndex = input.symbol(defval = 'NIFTY', title = '', inline = '#10', group = 'Primary And Secondary Index')
+ForthIndex_TF = input.timeframe(defval = '', title = ' TF ', inline = '#10', group = 'Primary And Secondary Index')
+
+// --- Line and Barcolor related ---
+ChangeBarColor_O = input.string(defval = 'No', title = 'Change Bar Color', inline = '#11', options = ['Yes', 'No'], group = 'Line and Barcolor related', tooltip = 'From Chart Settings in Symbol section uncheck Border and keep white/gray color for Wick)')
+green_color = input.color(defval = color.new(#00897B, 0), title = 'Green Color', inline = '#12', group = 'Line and Barcolor related')
+red_color = input.color(defval = color.new(#FF5252, 0), title = 'Red Color', inline = '#12', group = 'Line and Barcolor related')
+
+// --- Labels ---
+ShowCurrentReading_O = input.string(defval = 'No', title = 'Show Current Reading', inline = '#21', options = ['Yes', 'No'], group = 'Labels')
+Label_text = input.string(defval = 'TEWY', title = 'Add Custom Label', inline = '#100', group = 'Labels')
+
+// =========================================================================
+// 2. BOOLEAN FLAGS AND PREPARATION
+// =========================================================================
+
+UsePrimaryIndex = UsePrimaryIndex_O == 'Yes' ? true : false
+UseSecondaryIndex = UseSecondaryIndex_O == 'Yes' ? true : false
+UseThirdIndex = UseThirdIndex_O == 'Yes' ? true : false
+UseForthIndex = UseForthIndex_O == 'Yes' ? true : false
+
+ShowCurrentReading = ShowCurrentReading_O == 'Yes' ? true : false
+ChangeBarColor = ChangeBarColor_O == 'Yes' ? true : false
+
+// =========================================================================
+// 3. CORE CALCULATION: ROC AVERAGE
+// =========================================================================
+// Compute the sum of Rate of Change (ROC) over the past '_length1' bars
+sum_roc = 0.00
+for i = 1 to _length1 by 1
+    sum_roc := sum_roc + ta.roc(src, i)
+
+avg = sum_roc / _length1
+
+// =========================================================================
+// 4. MULTI-INDEX DATA REQUESTS
+// =========================================================================
+// Helper function to build the Heikin Ashi comparison ticker dynamically
+helper_ticker(index) => ticker.heikinashi(str.tostring(syminfo.ticker) + '/' + str.tostring(index))
+
+WithPrimaryOnly   = request.security(helper_ticker(PrimaryIndex),   PrimaryIndex_TF,   avg)
+WithSecondaryOnly = request.security(helper_ticker(SecondaryIndex), SecondaryIndex_TF, avg)
+WithThirdOnly     = request.security(helper_ticker(ThirdIndex),     ThirdIndex_TF,     avg)
+WithForthOnly     = request.security(helper_ticker(ForthIndex),     ForthIndex_TF,     avg)
+CurrentTickerOnly = request.security(ticker.heikinashi(str.tostring(syminfo.ticker)), timeframe.period, avg)
+
+// Combine active indices into a base average securely using multi-way tracking
+float Base_avg = na
+if UsePrimaryIndex or UseSecondaryIndex or UseThirdIndex or UseForthIndex
+    float combined_val = 0.0
+    int active_count = 0
+    
+    if UsePrimaryIndex
+        combined_val += WithPrimaryOnly
+        active_count += 1
+    if UseSecondaryIndex
+        combined_val += WithSecondaryOnly
+        active_count += 1
+    if UseThirdIndex
+        combined_val += WithThirdOnly
+        active_count += 1
+    if UseForthIndex
+        combined_val += WithForthOnly
+        active_count += 1
+        
+    Base_avg := combined_val / active_count
+else
+    Base_avg := CurrentTickerOnly
+
+// =========================================================================
+// 5. PLOTTING & VISUALS
+// =========================================================================
+
+// Determine signal color and modify bar colors if toggled
+linecolor = Base_avg >= 0 ? green_color : red_color
+barcolor(color = ChangeBarColor ? linecolor : na)
+
+// Calculate Momentum MMI
+_negativeMMI = math.max(ta.highest(Base_avg, _length2), 0) - Base_avg
+_posetiveMMI = Base_avg - math.min(ta.lowest(Base_avg, _length2), 0)
+
+// Midpoint crossover line
+crosspoint = ta.valuewhen(ta.cross(_posetiveMMI, _negativeMMI), (_posetiveMMI + _negativeMMI) / 2, 0)
+
+// Plotting the Momentum lines
+plot(_negativeMMI, title='-ve MMI', color=red_color, linewidth=1)
+plot(crosspoint, title='+ve MMI Cross', color=color.blue, linewidth=1, style=plot.style_circles)
+plot(_posetiveMMI, title='+ve MMI', color=green_color, linewidth=1)
+
+// Baseline constraint
+plot(0, title='Zero Line', color=color.yellow, linewidth=1)
+
+// =========================================================================
+// 6. TABLES & LABELS
+// =========================================================================
+
+// Table 1: Custom Label (Top Right)
+var testTable1 = table.new(position = position.top_right, columns = 1, rows = 1, bgcolor = color.new(#292929, 50), border_width = 0, frame_width = 1)
+if barstate.islast
+    table.cell(table_id = testTable1, column = 0, row = 0, text = Label_text, text_color = color.gray, text_halign = text.align_left)
+
+// Table 2: Current Reading (Bottom Left)
+var testTable2 = table.new(position = position.bottom_left, columns = 1, rows = 1, bgcolor = color.new(#292929, 50), border_width = 0, frame_width = 1)
+if ShowCurrentReading and barstate.islast
+    table.cell(table_id = testTable2, column = 0, row = 0, text = 'Current Reading : ' + str.tostring(math.round(Base_avg, 2)), text_color = linecolor, text_halign = text.align_left)
