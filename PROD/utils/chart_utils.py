@@ -161,6 +161,12 @@ def get_Strike_OHLC_data(
 
     def _read_parquet(token: int) -> DataFrame:
         path = f"{historical_base_path}/{interval}/{expiry}/{token}"
+        # Invalidate Spark's internal file-metadata cache so it picks up
+        # newly-written Parquet parts from the data fetcher.
+        try:
+            spark.catalog.refreshByPath(path)
+        except Exception:
+            pass
         return (
             spark.read.parquet(path, schema=OHLC_FLOAT_SCHEMA)
             .filter(col("volume") > 0)
@@ -341,8 +347,10 @@ def compute_analytics(
         df = df.filter(df.CE_close.isNotNull() & df.PE_close.isNotNull())
 
     df = df.withColumn("rownum", monotonically_increasing_id())
-    df = df.cache()  # Prevent Spark plan rebuild during ROC computation
-    df = get_ROC_added(df, col_name="close", length=20)
+    # Cache the base DF to prevent Spark plan rebuild during ROC computation.
+    # We unpersist it after toPandas() so fresh data is read on the next loop call.
+    cached_df = df.cache()
+    df = get_ROC_added(cached_df, col_name="close", length=20)
     if is_straddle:
         df = get_ROC_added(df, col_name="CE_close", length=20)
         df = get_ROC_added(df, col_name="PE_close", length=20)
@@ -453,8 +461,18 @@ def compute_analytics(
             ).otherwise(F.col("close")),
         )
 
-    # Convert to pandas
+    # Convert to pandas and release Spark cache
     df_pd = df.repartition(1).toPandas()
+    # Unpersist cached DF so next loop iteration reads fresh data from Parquet
+    try:
+        cached_df.unpersist()
+    except Exception:
+        pass
+    # Clean up temp views to avoid stale references
+    try:
+        spark.catalog.dropTempView("df_raw")
+    except Exception:
+        pass
     for num_col in ["rownum", "open", "high", "low", "close", "oi"]:
         if num_col in df_pd.columns:
             df_pd[num_col] = pd.to_numeric(df_pd[num_col])
@@ -747,7 +765,7 @@ def run_chart_loop(
 
     _job()
     schedule.clear()
-    schedule.every(loop_interval_minutes).minutes.do(_job)
+    schedule.every(loop_interval_minutes).seconds.do(_job)
 
     while True:
         try:

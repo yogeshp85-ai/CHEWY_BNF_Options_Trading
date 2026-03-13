@@ -436,7 +436,7 @@ def run_data_loop(
     _job()
 
     schedule.clear()
-    schedule.every(loop_interval_minutes).minutes.do(_job)
+    schedule.every(loop_interval_minutes).seconds.do(_job)
 
     logger.info(
         "Scheduled data pull every %d minute(s). Press Ctrl+C to stop.",
