@@ -206,18 +206,23 @@ class ChartWorker(QThread):
                 is_straddle = self.config.CE_OR_PE not in ("CE", "PE")
                 select_cols = cols_straddle if is_straddle else cols_single
 
-                raw_df = cu.get_Strike_OHLC_data(
-                    spark=self.spark,
-                    options_df=Banknifty_Options_DF,
-                    name="BANKNIFTY",
-                    expiry=self.expiries['current_week'],
-                    strike_level_name=self.config.STRIKE_LEVEL_NAME,
-                    ce_or_pe=self.config.CE_OR_PE,
-                    interval="3minute",
-                    num_days=self.config.NUM_DAYS,
-                    num_days_back=0,
-                    historical_base_path="DataFiles/HistoricalData"
-                ).select(select_cols)
+                try:
+                    raw_df = cu.get_Strike_OHLC_data(
+                        spark=self.spark,
+                        options_df=Banknifty_Options_DF,
+                        name="BANKNIFTY",
+                        expiry=self.expiries['current_week'],
+                        strike_level_name=self.config.STRIKE_LEVEL_NAME,
+                        ce_or_pe=self.config.CE_OR_PE,
+                        interval="3minute",
+                        num_days=self.config.NUM_DAYS,
+                        num_days_back=0,
+                        historical_base_path="DataFiles/HistoricalData"
+                    ).select(select_cols)
+                except IndexError:
+                    self.log_signal.emit(f"⚠️ Strike {self.config.STRIKE_LEVEL_NAME} not found in Parquet data yet. Retrying...")
+                    time.sleep(5)
+                    continue
                 
                 df_pd = ec3.compute_analytics(self.spark, raw_df, self.config.CE_OR_PE, self.config.IS_LATEST_DAY)
                 
@@ -257,6 +262,15 @@ class ChartWorker(QThread):
         title_base = f"Strike: ({self.config.STRIKE_LEVEL_NAME}) / {strike}  —  {now_str}"
         
         df = ec3._add_extra_analytics(df_pd)
+        
+        # PREVENT CATEGORICAL Y-AXIS BUG: Convert Spark Decimals -> Floats
+        for col in df.columns:
+            if df[col].dtype == 'object' and col not in ["date", "x_label", "_dt", "_date_only"]:
+                try:
+                    df[col] = pd.to_numeric(df[col], errors='ignore')
+                except Exception:
+                    pass
+        
         x, boundary_x = ec3._build_x_axis(df)
         roc_avg_series = df["ROC_AVG_close"].expanding().mean()
         
@@ -267,7 +281,10 @@ class ChartWorker(QThread):
         os.makedirs(snapshot_dir, exist_ok=True)
         
         def process_fig(fig, base_name):
-            html_snippets.append(fig.to_html(include_plotlyjs=False, full_html=False))
+            # Embed the massive Plotly.js source completely offline in the first snippet 
+            # to bypass the QtWebEngine CORS restriction on file:// URIs.
+            inc_js = True if len(html_snippets) == 0 else False
+            html_snippets.append(fig.to_html(include_plotlyjs=inc_js, full_html=False))
             filepath = os.path.join(snapshot_dir, f"{base_name}_{today_str}.png")
             try:
                 fig.write_image(filepath, scale=1.5)
@@ -426,7 +443,6 @@ class ChartWorker(QThread):
         html_content = f"""
         <html>
         <head>
-            <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
             <style>
                 body {{ background-color: #1e1e2f; color: #d4d4dc; font-family: sans-serif; margin: 0; padding: 10px; }}
                 .chart-container {{ margin-bottom: 20px; }}
