@@ -911,7 +911,7 @@ def run_enhanced_chart_loop_v3(
 
     _job()
     schedule.clear()
-    schedule.every(loop_interval_minutes).minutes.do(_job)
+    schedule.every(loop_interval_minutes).seconds.do(_job)
 
     while True:
         try:
