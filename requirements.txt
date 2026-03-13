@@ -10,7 +10,7 @@ numpy>=1.24.0
 pyarrow>=14.0.0       # Parquet read/write support
 
 # PySpark (distributed processing)
-pyspark>=3.5.0
+pyspark>=3.5.0,<4.0.0
 
 # Authentication
 pyotp>=2.9.0          # TOTP 2FA
@@ -28,3 +28,8 @@ ipywidgets>=8.1.0
 
 # Utilities
 python-dotenv>=1.0.0  # Load .env file into environment
+PyQt5>=5.15.0
+PyQtWebEngine>=5.15.0
+kaleido>=0.2.1
+Pillow>=10.0.0
+schedule>=1.2.0
