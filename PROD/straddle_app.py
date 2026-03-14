@@ -2,14 +2,14 @@ import sys
 import os
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QCheckBox, QPushButton, QTextEdit, QGridLayout,
-    QGroupBox, QSplitter, QScrollArea, QMessageBox
+    QGroupBox, QSplitter, QMessageBox, QTabWidget, QComboBox, QToolButton, QScrollArea, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtCore import Qt, QUrl, QTimer
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from dotenv import load_dotenv
 
@@ -40,12 +40,27 @@ class PipelineConfig:
     
     END_HOUR: int = 15
     END_MINUTE: int = 30
+    SAVE_SNAPSHOT: bool = True
 
+
+def create_info_btn(tooltip: str):
+    btn = QToolButton()
+    btn.setText("ℹ")
+    btn.setToolTip(tooltip)
+    btn.setStyleSheet("border: none; color: #888888; font-weight: bold;")
+    return btn
+
+def create_combo(start=0, end=20, default=0):
+    cb = QComboBox()
+    for i in range(start, end+1):
+        cb.addItem(str(i))
+    cb.setCurrentText(str(default))
+    return cb
 
 class StraddleApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BankNifty Straddle Pipeline")
+        self.setWindowTitle("TEWY - Options Charts")
         self.resize(1600, 1000)
         
         self.kite = None
@@ -57,125 +72,237 @@ class StraddleApp(QMainWindow):
         self.data_worker = None
         self.chart_worker = None
         
+        self.strike_watcher_timer = QTimer(self)
+        self.strike_watcher_timer.setSingleShot(True)
+        self.strike_watcher_timer.timeout.connect(self.handle_strike_changed)
+        
         self.init_ui()
         
     def init_ui(self):
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Splitter to allow resizing config/logs vs charts
-        h_splitter = QSplitter(Qt.Horizontal)
+        # --- TOP LEVEL SECTION ---
+        top_bar = QHBoxLayout()
+        # App Updated Date
+        lbl_date = QLabel(f"<b>App Updated Date:</b> {date.today().strftime('%Y-%m-%d')}")
+        lbl_date.setStyleSheet("color: #aaaaaa; font-family: monospace;")
+        top_bar.addWidget(lbl_date)
+        top_bar.addStretch()
         
-        # Left Panel: Config & Logs
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        # Toggles and Extra Buttons
+        self.btn_save_snap = QPushButton("📸 Save Charts Snapshot")
+        self.btn_save_snap.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
+        self.btn_save_snap.clicked.connect(self.trigger_manual_snapshot)
+        self.btn_save_snap.setFixedSize(180, 30)
         
-        # 1. Config Group
-        config_group = QGroupBox("Configuration Parameters")
+        self.btn_toggle_config = QPushButton("Hide Configuration")
+        self.btn_toggle_config.setCheckable(True)
+        self.btn_toggle_config.clicked.connect(self.update_splitter_visibility)
+        self.btn_toggle_config.setFixedSize(150, 30)
+        
+        self.btn_toggle_status = QPushButton("Hide Status Window")
+        self.btn_toggle_status.setCheckable(True)
+        self.btn_toggle_status.clicked.connect(self.update_splitter_visibility)
+        self.btn_toggle_status.setFixedSize(150, 30)
+        
+        top_bar.addWidget(self.btn_save_snap)
+        top_bar.addWidget(self.btn_toggle_config)
+        top_bar.addWidget(self.btn_toggle_status)
+        main_layout.addLayout(top_bar)
+        
+        # --- TAB WIDGET ---
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
+        
+        # --- TAB 1: BNF - Straddle ---
+        self.tab_bnf = QWidget()
+        self.tabs.addTab(self.tab_bnf, "BNF - Straddle")
+        tab_layout = QVBoxLayout(self.tab_bnf)
+        
+        # Horizontal Splitter: Left (Config + Status) / Right (Charts)
+        self.h_splitter = QSplitter(Qt.Horizontal)
+        tab_layout.addWidget(self.h_splitter)
+        
+        # Container for Config and Status (Left Panel)
+        self.left_panel = QWidget()
+        left_panel_layout = QVBoxLayout(self.left_panel)
+        left_panel_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # ---- CONFIG WRAPPER (holds Config Group & Pipeline Controls) ----
+        self.config_wrapper = QWidget()
+        config_wrapper_layout = QVBoxLayout(self.config_wrapper)
+        config_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # ---- CONFIG GROUP ----
+        self.config_group = QGroupBox("Configuration Parameters")
         grid = QGridLayout()
-        config_group.setLayout(grid)
+        self.config_group.setLayout(grid)
         
+        # Line 1
         self.chk_bnf = QCheckBox("BANKNIFTY")
         self.chk_bnf.setChecked(True)
         self.chk_nifty = QCheckBox("NIFTY")
-        
-        self.txt_custom_strike = QLineEdit("0")
-        self.txt_num_strikes = QLineEdit("9")
         self.chk_next_expiry = QCheckBox("PULL_NEXT_EXPIRY")
-        self.txt_history_days = QLineEdit("1")
-        self.txt_loop_interval = QLineEdit("1")
-        
-        self.txt_strike_name = QLineEdit("ATM")
-        self.txt_ce_pe = QLineEdit("E")
-        self.txt_num_days_chart = QLineEdit("2")
         self.chk_latest_day = QCheckBox("IS_LATEST_DAY")
         self.chk_latest_day.setChecked(True)
+        self.chk_save_snapshot = QCheckBox("SAVE_SNAPSHOT")
+        self.chk_save_snapshot.setChecked(True)
         
+        h_checks = QHBoxLayout()
+        h_checks.addWidget(self.chk_bnf)
+        h_checks.addWidget(self.chk_nifty)
+        h_checks.addWidget(self.chk_next_expiry)
+        h_checks.addStretch()
+        grid.addLayout(h_checks, 0, 0, 1, 3)
+        
+        h_checks_2 = QHBoxLayout()
+        h_checks_2.addWidget(self.chk_latest_day)
+        h_checks_2.addWidget(self.chk_save_snapshot)
+        h_checks_2.addStretch()
+        grid.addLayout(h_checks_2, 1, 0, 1, 3)
+        
+        # Row 2 Configs
+        grid.addWidget(QLabel("Custom Strike (0=LTP):"), 2, 0)
+        self.txt_custom_strike = QLineEdit("0")
+        self.txt_custom_strike.textChanged.connect(self.on_strike_text_changed)
+        grid.addWidget(self.txt_custom_strike, 2, 1)
+        grid.addWidget(create_info_btn("0 = current ATM. Triggers auto-restart."), 2, 2)
+        
+        grid.addWidget(QLabel("Strike Range (+/-):"), 3, 0)
+        self.cmb_num_strikes = create_combo(0, 20, 9)
+        grid.addWidget(self.cmb_num_strikes, 3, 1)
+        grid.addWidget(create_info_btn("Strikes above/below ATM."), 3, 2)
+        
+        # Row 3 Configs
+        grid.addWidget(QLabel("Data History (Days):"), 4, 0)
+        self.cmb_history_days = create_combo(0, 20, 1)
+        grid.addWidget(self.cmb_history_days, 4, 1)
+        grid.addWidget(create_info_btn("Auto-adjusts (+1 Sat, +2 Sun)."), 4, 2)
+        
+        grid.addWidget(QLabel("Fetch Interval (Min):"), 5, 0)
+        self.cmb_loop_interval = create_combo(0, 20, 1)
+        grid.addWidget(self.cmb_loop_interval, 5, 1)
+        grid.addWidget(create_info_btn("Minutes between fetches."), 5, 2)
+        
+        # Row 4 Configs
+        grid.addWidget(QLabel("Target Strike Level:"), 6, 0)
+        self.txt_strike_name = QLineEdit("ATM")
+        grid.addWidget(self.txt_strike_name, 6, 1)
+        grid.addWidget(create_info_btn("Target strike level (ATM, ATM+1)."), 6, 2)
+        
+        grid.addWidget(QLabel("Strategy Mode:"), 7, 0)
+        self.cmb_ce_pe = QComboBox()
+        self.cmb_ce_pe.addItems(["E", "CE", "PE"])
+        self.cmb_ce_pe.setCurrentText("E")
+        grid.addWidget(self.cmb_ce_pe, 7, 1)
+        grid.addWidget(create_info_btn("'E' = Straddle. 'CE'/'PE' = Single leg."), 7, 2)
+        
+        # Row 5 Configs
+        grid.addWidget(QLabel("Chart History (Days):"), 8, 0)
+        self.cmb_num_days_chart = create_combo(0, 20, 2)
+        grid.addWidget(self.cmb_num_days_chart, 8, 1)
+        grid.addWidget(create_info_btn("Days of data to render."), 8, 2)
+        
+        grid.addWidget(QLabel("Auto-Stop Time:"), 9, 0)
+        h_time = QHBoxLayout()
         self.txt_end_hour = QLineEdit("15")
+        self.txt_end_hour.setMaximumWidth(40)
+        h_time.addWidget(self.txt_end_hour)
+        h_time.addWidget(QLabel("MIN:"))
         self.txt_end_minute = QLineEdit("30")
+        self.txt_end_minute.setMaximumWidth(40)
+        h_time.addWidget(self.txt_end_minute)
         
-        # Layout the grid
-        row = 0
-        grid.addWidget(self.chk_bnf, row, 0)
-        grid.addWidget(self.chk_nifty, row, 1)
-        row += 1
-        grid.addWidget(QLabel("CUSTOM_STRIKE (0=LTP):"), row, 0)
-        grid.addWidget(self.txt_custom_strike, row, 1)
-        row += 1
-        grid.addWidget(QLabel("NUM_STRIKES (+/- ATM):"), row, 0)
-        grid.addWidget(self.txt_num_strikes, row, 1)
-        row += 1
-        grid.addWidget(self.chk_next_expiry, row, 0, 1, 2)
-        row += 1
-        grid.addWidget(QLabel("NUM_DAYS_HISTORY:"), row, 0)
-        grid.addWidget(self.txt_history_days, row, 1)
-        row += 1
-        grid.addWidget(QLabel("LOOP_INTERVAL_MIN:"), row, 0)
-        grid.addWidget(self.txt_loop_interval, row, 1)
-        row += 1
-        grid.addWidget(QLabel("STRIKE_LEVEL_NAME:"), row, 0)
-        grid.addWidget(self.txt_strike_name, row, 1)
-        row += 1
-        grid.addWidget(QLabel("CE_OR_PE ('E'=straddle):"), row, 0)
-        grid.addWidget(self.txt_ce_pe, row, 1)
-        row += 1
-        grid.addWidget(QLabel("NUM_DAYS (Charts):"), row, 0)
-        grid.addWidget(self.txt_num_days_chart, row, 1)
-        row += 1
-        grid.addWidget(self.chk_latest_day, row, 0, 1, 2)
-        row += 1
-        grid.addWidget(QLabel("END_HOUR (24h):"), row, 0)
-        grid.addWidget(self.txt_end_hour, row, 1)
-        row += 1
-        grid.addWidget(QLabel("END_MINUTE:"), row, 0)
-        grid.addWidget(self.txt_end_minute, row, 1)
+        grid.addLayout(h_time, 9, 1)
+        grid.addWidget(create_info_btn("Auto stop (24h)."), 9, 2)
         
-        left_layout.addWidget(config_group)
+        # Prevent the columns from stretching endlessly
+        self.txt_custom_strike.setMaximumWidth(120)
+        self.cmb_num_strikes.setMaximumWidth(120)
+        self.cmb_history_days.setMaximumWidth(120)
+        self.cmb_loop_interval.setMaximumWidth(120)
+        self.txt_strike_name.setMaximumWidth(120)
+        self.cmb_ce_pe.setMaximumWidth(120)
+        self.cmb_num_days_chart.setMaximumWidth(120)
+        grid.setColumnStretch(3, 1)
         
-        # 2. Controls
+        config_wrapper_layout.addWidget(self.config_group)
+        
+        # ---- PIPELINE CONTROLS ----
         h_ctrl = QHBoxLayout()
         self.btn_start = QPushButton("▶ START PIPELINE")
-        self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-weight: bold;")
+        self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; padding: 6px; font-weight: bold;")
         self.btn_start.clicked.connect(self.start_pipeline)
         
         self.btn_stop = QPushButton("⏹ STOP PIPELINE")
-        self.btn_stop.setStyleSheet("background-color: #f44336; color: white; padding: 10px; font-weight: bold;")
+        self.btn_stop.setStyleSheet("background-color: #f44336; color: white; padding: 6px; font-weight: bold;")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_pipeline)
         
         h_ctrl.addWidget(self.btn_start)
         h_ctrl.addWidget(self.btn_stop)
-        left_layout.addLayout(h_ctrl)
+        config_wrapper_layout.addLayout(h_ctrl)
         
-        # 3. Status
+        # Add the entire wrapper to the left panel
+        left_panel_layout.addWidget(self.config_wrapper)
+        
+        # ---- STATUS GROUP ----
+        self.status_group = QGroupBox("Status Window")
+        status_layout = QVBoxLayout()
+        self.status_group.setLayout(status_layout)
+        
         self.lbl_status = QLabel("Status: Idle")
-        self.lbl_status.setStyleSheet("font-weight: bold; color: blue;")
-        left_layout.addWidget(self.lbl_status)
+        self.lbl_status.setStyleSheet("font-weight: bold; color: #4CAF50;")
+        status_layout.addWidget(self.lbl_status)
         
-        # 4. Logs
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
         self.text_log.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: monospace;")
-        left_layout.addWidget(self.text_log)
+        status_layout.addWidget(self.text_log)
         
-        # Right Panel: Interactive Charts
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        left_panel_layout.addWidget(self.status_group)
+        self.h_splitter.addWidget(self.left_panel)
         
+        # ---- CHARTS PANEL (Right Panel) ----
         self.webview = QWebEngineView()
-        # Set a dark background HTML as default
-        self.webview.setHtml("<html><body style='background-color: #1e1e2f; color: white; display:flex; justify-content:center; align-items:center; height:100vh;'><h3>Interactive charts will load here...</h3></body></html>")
-        right_layout.addWidget(self.webview)
+        self.webview.setHtml("<html><body style='background-color: #1e1e2f; color: white; display:flex; justify-content:center; align-items:center; height:100vh;'><h2>Charts will load here...</h2></body></html>")
         
-        # Add to splitter
-        h_splitter.addWidget(left_panel)
-        h_splitter.addWidget(right_panel)
-        h_splitter.setSizes([400, 1200]) # initial sizes
+        # Ensure charts take up majority of space
+        self.webview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.h_splitter.addWidget(self.webview)
         
-        main_layout.addWidget(h_splitter)
+        # Set exact ratio (approx 15% left, 85% right) out of a total, e.g., 2000px
+        self.h_splitter.setSizes([300, 1700])
+        
         self.setCentralWidget(main_widget)
+
+    def trigger_manual_snapshot(self):
+        if self.chart_worker and self.chart_worker.isRunning():
+            self.chart_worker.trigger_snapshot()
+            self.log_msg("📸 Manual snapshot requested. Will evaluate on next chart tick.")
+        else:
+            QMessageBox.information(self, "Not Running", "Cannot take snapshot. Charts are not actively generating.")
+
+    def update_splitter_visibility(self):
+        # Update the button text
+        config_hidden = self.btn_toggle_config.isChecked()
+        status_hidden = self.btn_toggle_status.isChecked()
+        
+        self.btn_toggle_config.setText("Show Configuration" if config_hidden else "Hide Configuration")
+        self.btn_toggle_status.setText("Show Status Window" if status_hidden else "Hide Status Window")
+        
+        # Hide internal elements
+        self.config_wrapper.setVisible(not config_hidden)
+        self.status_group.setVisible(not status_hidden)
+        
+        # If BOTH are hidden, collapse the ENTIRE left panel so charts take 100% width
+        if config_hidden and status_hidden:
+            self.left_panel.hide()
+        else:
+            self.left_panel.show()
+            self.h_splitter.setSizes([300, 1700])
 
     def log_msg(self, msg: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -188,16 +315,17 @@ class StraddleApp(QMainWindow):
                 BANKNIFTY=self.chk_bnf.isChecked(),
                 NIFTY=self.chk_nifty.isChecked(),
                 CUSTOM_STRIKE=int(self.txt_custom_strike.text()),
-                NUM_STRIKES=int(self.txt_num_strikes.text()),
+                NUM_STRIKES=int(self.cmb_num_strikes.currentText()),
                 PULL_NEXT_EXPIRY=self.chk_next_expiry.isChecked(),
-                NUM_DAYS_HISTORY=int(self.txt_history_days.text()),
-                LOOP_INTERVAL_MIN=int(self.txt_loop_interval.text()),
+                NUM_DAYS_HISTORY=int(self.cmb_history_days.currentText()),
+                LOOP_INTERVAL_MIN=int(self.cmb_loop_interval.currentText()),
                 STRIKE_LEVEL_NAME=self.txt_strike_name.text(),
-                CE_OR_PE=self.txt_ce_pe.text(),
-                NUM_DAYS=int(self.txt_num_days_chart.text()),
+                CE_OR_PE=self.cmb_ce_pe.currentText(),
+                NUM_DAYS=int(self.cmb_num_days_chart.currentText()),
                 IS_LATEST_DAY=self.chk_latest_day.isChecked(),
                 END_HOUR=int(self.txt_end_hour.text()) if self.txt_end_hour.text() else None,
                 END_MINUTE=int(self.txt_end_minute.text()) if self.txt_end_minute.text() else None,
+                SAVE_SNAPSHOT=self.chk_save_snapshot.isChecked()
             )
         except ValueError as e:
             QMessageBox.critical(self, "Config Error", f"Invalid integer parameter: {e}")
@@ -228,7 +356,10 @@ class StraddleApp(QMainWindow):
         self.options_df = options_df
         self.expiries = expiries
         
-        self.lbl_status.setText("Status: Step 2 & 3 Running Concurrently ●")
+        self.start_loops(config)
+
+    def start_loops(self, config):
+        self.lbl_status.setText("Status: Loops Running Concurrently ●")
         self.lbl_status.setStyleSheet("font-weight: bold; color: green;")
         
         # Start Step 2
@@ -244,6 +375,34 @@ class StraddleApp(QMainWindow):
         self.chart_worker.chart_ready_signal.connect(self.update_charts)
         self.chart_worker.start()
 
+    def stop_loops(self, wait=True):
+        if self.data_worker:
+            self.data_worker.stop()
+            if wait: self.data_worker.wait()
+        if self.chart_worker:
+            self.chart_worker.stop()
+            if wait: self.chart_worker.wait()
+
+    def on_strike_text_changed(self):
+        # Debounce to prevent restarting on every keystroke
+        self.strike_watcher_timer.stop()
+        self.strike_watcher_timer.start(1000) # 1 sec debounce
+
+    def handle_strike_changed(self):
+        # Only restart if loops are currently active (instruments done)
+        if not self.kite or not self.spark or not self.data_worker:
+            return
+            
+        config = self.get_config()
+        if not config: return
+        
+        self.log_msg(f"🔄 Custom Strike changed to {config.CUSTOM_STRIKE}. Restarting execution loops...")
+        self.lbl_status.setText("Status: Restarting Loops...")
+        self.lbl_status.setStyleSheet("font-weight: bold; color: orange;")
+        
+        self.stop_loops(wait=True)
+        self.start_loops(config)
+
     def update_charts(self, html_file_path):
         """Loads the interactive Plotly HTML into the QWebEngineView."""
         url = QUrl.fromLocalFile(os.path.abspath(html_file_path))
@@ -255,30 +414,25 @@ class StraddleApp(QMainWindow):
         self.lbl_status.setStyleSheet("font-weight: bold; color: red;")
         self.btn_stop.setEnabled(False)
         
-        if self.data_worker:
-            self.data_worker.stop()
-        if self.chart_worker:
-            self.chart_worker.stop()
+        self.stop_loops(wait=False)
             
         self.log_msg("Pipeline stopped.")
         self.btn_start.setEnabled(True)
         self.lbl_status.setText("Status: Idle")
         self.lbl_status.setStyleSheet("font-weight: bold; color: blue;")
+        
+        self.kite = None
+        self.spark = None
 
     def closeEvent(self, event):
         self.stop_pipeline()
-        # Ensure threads finish before exiting
-        if self.data_worker: self.data_worker.wait()
-        if self.chart_worker: self.chart_worker.wait()
+        self.stop_loops(wait=True)
         if self.instruments_worker: self.instruments_worker.wait()
         event.accept()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    
-    # Change to root dir so DataFiles are accessible
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     window = StraddleApp()
     window.show()
     sys.exit(app.exec_())
-

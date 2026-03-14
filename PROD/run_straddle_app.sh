@@ -15,3 +15,4 @@ export PYSPARK_DRIVER_PYTHON="$(pwd)/.venv/bin/python3"
 cd PROD
 export PYTHONPATH="$(pwd)"
 ../.venv/bin/python3 straddle_app.py
+

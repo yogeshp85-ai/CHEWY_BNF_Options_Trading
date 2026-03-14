@@ -115,6 +115,16 @@ class DataFetchWorker(QThread):
 
                 self.log_signal.emit(f"Fetching data at {datetime.now().strftime('%H:%M:%S')}...")
                 
+                # Dynamically apply weekend logic
+                # Saturday (+1), Sunday (+2)
+                weekday = datetime.now().weekday()
+                # 5 = Saturday, 6 = Sunday
+                days_history = self.config.NUM_DAYS_HISTORY
+                if weekday == 5:
+                    days_history += 1
+                elif weekday == 6:
+                    days_history += 2
+
                 get_latest_data(
                     kite=self.kite,
                     spark=self.spark,
@@ -123,7 +133,7 @@ class DataFetchWorker(QThread):
                     custom_strike=self.config.CUSTOM_STRIKE,
                     num_strikes=self.config.NUM_STRIKES,
                     pull_next_expiry=self.config.PULL_NEXT_EXPIRY,
-                    num_days_history=self.config.NUM_DAYS_HISTORY,
+                    num_days_history=days_history,
                     interval="3minute",
                     instruments_base_path="DataFiles/Instruments"
                 )
@@ -164,6 +174,10 @@ class ChartWorker(QThread):
         self.expiries = expiries
         self.config = config
         self._is_running = True
+        self._force_snapshot = False
+
+    def trigger_snapshot(self):
+        self._force_snapshot = True
 
     def run(self):
         self.log_signal.emit("📈 Chart Render Loop started.")
@@ -285,12 +299,15 @@ class ChartWorker(QThread):
             # to bypass the QtWebEngine CORS restriction on file:// URIs.
             inc_js = True if len(html_snippets) == 0 else False
             html_snippets.append(fig.to_html(include_plotlyjs=inc_js, full_html=False))
-            filepath = os.path.join(snapshot_dir, f"{base_name}_{today_str}.png")
-            try:
-                fig.write_image(filepath, scale=1.5)
-                saved_images_paths.append(filepath)
-            except Exception as e:
-                self.error_signal.emit(f"Failed to save {filepath}: {e}")
+            
+            # Conditionally save snapshots based on config OR manual trigger
+            if getattr(self.config, 'SAVE_SNAPSHOT', False) or self._force_snapshot:
+                filepath = os.path.join(snapshot_dir, f"{base_name}_{today_str}.png")
+                try:
+                    fig.write_image(filepath, scale=1.5)
+                    saved_images_paths.append(filepath)
+                except Exception as e:
+                    self.error_signal.emit(f"Failed to save {filepath}: {e}")
 
         # === Fig 1 ===
         fig1 = make_subplots(rows=1, cols=2, subplot_titles=["Straddle Price & Signals", "ROC AVG"], horizontal_spacing=0.06)
@@ -428,7 +445,7 @@ class ChartWorker(QThread):
                 for im in images:
                     combined_img.paste(im, (0, y_offset))
                     y_offset += im.size[1]
-                out_path = os.path.join(snapshot_dir, f"Combined_Dashboard_{today_str}.png")
+                out_path = os.path.join(snapshot_dir, f"BNF-Staddle-{today_str}.png")
                 combined_img.save(out_path)
                 for p in saved_images_paths:
                     try:
@@ -436,20 +453,27 @@ class ChartWorker(QThread):
                     except OSError:
                         pass
                 self.log_signal.emit(f"📸 Snapshot saved to {out_path}")
+                
+                # Reset the override flag if manually requested
+                self._force_snapshot = False
+                
             except Exception as e:
                 self.error_signal.emit(f"Failed to stitch images: {e}")
 
         # Construct final HTML
+        divs = ''.join([f'<div class="chart-container">{snip}</div>' for snip in html_snippets])
         html_content = f"""
+        <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="utf-8">
             <style>
                 body {{ background-color: #1e1e2f; color: #d4d4dc; font-family: sans-serif; margin: 0; padding: 10px; }}
                 .chart-container {{ margin-bottom: 20px; }}
             </style>
         </head>
         <body>
-            {''.join([f'<div class="chart-container">{snip}</div>' for snip in html_snippets])}
+            {divs}
         </body>
         </html>
         """
