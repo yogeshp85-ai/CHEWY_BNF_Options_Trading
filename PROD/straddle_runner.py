@@ -141,7 +141,8 @@ class DataFetchWorker(QThread):
                 self.log_signal.emit(f"✅ Data fetch completed. Waiting {self.config.LOOP_INTERVAL_MIN} min...")
                 
                 # Sleep in small increments to allow responsive stopping
-                for _ in range(self.config.LOOP_INTERVAL_MIN * 60):
+                # for _ in range(self.config.LOOP_INTERVAL_MIN * 60):
+                for _ in range(self.config.LOOP_INTERVAL_MIN * 1):
                     if not self._is_running:
                         break
                     time.sleep(1)
@@ -249,7 +250,8 @@ class ChartWorker(QThread):
                     self.log_signal.emit("✅ Charts updated.")
                 
                 # Sleep in increments
-                for _ in range(self.config.LOOP_INTERVAL_MIN * 60):
+                # for _ in range(self.config.LOOP_INTERVAL_MIN * 60):
+                for _ in range(self.config.LOOP_INTERVAL_MIN * 1):
                     if not self._is_running:
                         break
                     time.sleep(1)
@@ -349,6 +351,8 @@ class ChartWorker(QThread):
             fig2a.add_trace(go.Scatter(x=x, y=[0]*len(df), mode="lines", line=dict(color=ec3.COLORS["midline"], width=1), showlegend=False), row=1, col=2)
             fig2a.add_trace(go.Scatter(x=x, y=df["ROC_AVG_CE_close"], mode="lines", name="CE ROC AVG", line=dict(color=ec3.COLORS["ce_roc"], width=2)), row=1, col=2)
             fig2a.add_trace(go.Scatter(x=x, y=df["ROC_AVG_PE_close"], mode="lines", name="PE ROC AVG", line=dict(color=ec3.COLORS["pe_roc"], width=2)), row=1, col=2)
+            # fig2a.add_trace(go.Scatter(x=x, y=df["ROC_AVG_CEPE_AVG"], mode="lines", name="CE_PE ROC AVG", line=dict(color=ec3.COLORS["roc_avg"], width=2)), row=1, col=2)
+            fig2a.add_trace(go.Scatter(x=x, y=df["ROC_AVG_CE_close"]+df["ROC_AVG_PE_close"], mode="lines", name="CE_PE ROC AVG", line=dict(color=ec3.COLORS["roc_avg"], width=2)), row=1, col=2)
             if "ce_pe_ratio" in df.columns:
                 fig2a.add_trace(go.Scatter(x=x, y=df["ce_pe_ratio"], mode="lines", name="CE/PE Ratio", line=dict(color=ec3.COLORS["ratio_line"], width=1.5, dash="dash")), row=1, col=2)
                 
@@ -417,13 +421,27 @@ class ChartWorker(QThread):
         process_fig(fig4, "Straddle_Price_VWAP_OIWAP")
 
         # === Fig 5 ===
-        fig5 = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.75, 0.25], vertical_spacing=0.03, subplot_titles=["OHLC Candlestick", "Volume"])
+        fig5 = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.60, 0.20, 0.20], vertical_spacing=0.03, subplot_titles=["OHLC Candlestick", "Volume", "Cumulative Candles"])
         fig5.add_trace(go.Candlestick(x=x, open=df["open"], high=df["high"], low=df["low"], close=df["close"], increasing_line_color=ec3.COLORS["candle_up"], decreasing_line_color=ec3.COLORS["candle_down"], name="OHLC"), row=1, col=1)
         if "volume" in df.columns:
             vol_colors = [ec3.COLORS["candle_up"] if c>=o else ec3.COLORS["candle_down"] for c,o in zip(df["close"], df["open"])]
             fig5.add_trace(go.Bar(x=x, y=df["volume"], name="Volume", marker_color=vol_colors, opacity=0.6), row=2, col=1)
-        ec3._add_day_boundaries(fig5, boundary_x, [1,2], [1,1])
-        ec3._apply_dark_layout(fig5, f"OHLC Candlestick — {title_base}", height=600, width=1400)
+            
+        # Add Green/Red Candle cumulative count lines in the new 3rd row
+        is_green = (df["close"] >= df["open"]).astype(int)
+        is_red = (df["close"] < df["open"]).astype(int)
+        
+        # Safely extract the date component regardless of whether x is a DatetimeIndex or a list of strings
+        x_dates = pd.to_datetime(x).date
+        
+        green_cum = is_green.groupby(x_dates).cumsum()
+        red_cum = is_red.groupby(x_dates).cumsum()
+            
+        fig5.add_trace(go.Scatter(x=x, y=green_cum, mode="lines", name="Green Cumulative", line=dict(color=ec3.COLORS["candle_up"], width=2)), row=3, col=1)
+        fig5.add_trace(go.Scatter(x=x, y=red_cum, mode="lines", name="Red Cumulative", line=dict(color=ec3.COLORS["candle_down"], width=2)), row=3, col=1)
+
+        ec3._add_day_boundaries(fig5, boundary_x, [1,2,3], [1,1,1])
+        ec3._apply_dark_layout(fig5, f"OHLC Candlestick — {title_base}", height=750, width=1400)
         fig5.update_xaxes(rangeslider_visible=False, row=1, col=1)
         
         total_candles = len(df)

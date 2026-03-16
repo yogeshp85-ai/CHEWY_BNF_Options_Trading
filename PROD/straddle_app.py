@@ -181,10 +181,10 @@ class StraddleApp(QMainWindow):
         grid.addWidget(self.cmb_history_days, 4, 1)
         grid.addWidget(create_info_btn("Auto-adjusts (+1 Sat, +2 Sun)."), 4, 2)
         
-        grid.addWidget(QLabel("Fetch Interval (Min):"), 5, 0)
-        self.cmb_loop_interval = create_combo(0, 20, 1)
+        grid.addWidget(QLabel("Fetch Interval (Sec):"), 5, 0)
+        self.cmb_loop_interval = create_combo(0, 20, 10)
         grid.addWidget(self.cmb_loop_interval, 5, 1)
-        grid.addWidget(create_info_btn("Minutes between fetches."), 5, 2)
+        grid.addWidget(create_info_btn("Seconds between fetches."), 5, 2)
         
         # Row 4 Configs
         grid.addWidget(QLabel("Target Strike Level:"), 6, 0)
