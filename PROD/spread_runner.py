@@ -23,7 +23,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.functions import asc, col, lit, monotonically_increasing_id
 from pyspark.sql.functions import round as spark_round
 from pyspark.sql.window import Window
-from PyQt5.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal as pyqtSignal
 
 import utils.enhanced_charts_v3 as ec3
 from utils.chart_utils import OHLC_FLOAT_SCHEMA, get_ROC_added

@@ -51,6 +51,7 @@ metastore_db/
 DataFiles/
 Chartsnapshots/
 ChartsSnapshots/
+bkp/
 
 # --- IDE ---
 .vscode/

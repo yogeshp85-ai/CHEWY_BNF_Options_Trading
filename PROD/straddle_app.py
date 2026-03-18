@@ -1,17 +1,23 @@
 import sys
 import os
+
+# Fix for Qt Platform Plugin error on macOS when running from bash scripts
+venv_base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+qt_plugin_path = os.path.join(venv_base, '.venv', 'lib', 'python3.12', 'site-packages', 'PySide6', 'Qt', 'plugins', 'platforms')
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = qt_plugin_path
+
 import logging
 from dataclasses import dataclass
 from datetime import datetime, date
 
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QCheckBox, QPushButton, QTextEdit, QGridLayout,
     QGroupBox, QSplitter, QMessageBox, QTabWidget, QComboBox, QToolButton, QScrollArea, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QUrl, QTimer
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtCore import Qt, QUrl, QTimer
+from PySide6.QtGui import QIcon
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from dotenv import load_dotenv
 
 # Load variables from .env file if present
@@ -125,7 +131,7 @@ class StraddleApp(QMainWindow):
         main_layout.addLayout(top_bar)
         
         # --- HORIZONTAL SPLITTER: Left (Config+Status) | Right (Tabs) ---
-        self.h_splitter = QSplitter(Qt.Horizontal)
+        self.h_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.h_splitter)
         
         # ---- LEFT PANEL (Config + Status) — shared across all tabs ----
@@ -452,4 +458,4 @@ if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     window = StraddleApp()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

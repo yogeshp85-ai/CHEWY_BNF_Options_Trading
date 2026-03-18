@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QLabel, QComboBox, QToolButton, QHBoxLayout, QWidget, QLineEdit, QCheckBox
-from PyQt5.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QComboBox, QToolButton, QHBoxLayout, QWidget, QLineEdit, QCheckBox
+from PySide6.QtCore import Qt
 
 def create_info_btn(tooltip: str):
     btn = QToolButton()

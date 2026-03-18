@@ -16,3 +16,7 @@ cd PROD
 export PYTHONPATH="$(pwd)"
 ../.venv/bin/python3 straddle_app.py
 
+# # Run the app 
+# cd PROD
+# export PYTHONPATH="$(pwd)"
+# ../.venv/bin/python3 straddle_app.py

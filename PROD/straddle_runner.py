@@ -2,7 +2,7 @@ import logging
 import time
 import os
 from datetime import datetime
-from PyQt5.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal as pyqtSignal
 
 # Import existing pipeline methods
 from utils.kite_helpers import kite_login, get_spark_session
