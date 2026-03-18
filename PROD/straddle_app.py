@@ -1,10 +1,6 @@
 import sys
 import os
 
-# Fix for Qt Platform Plugin error on macOS when running from bash scripts
-venv_base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-qt_plugin_path = os.path.join(venv_base, '.venv', 'lib', 'python3.12', 'site-packages', 'PySide6', 'Qt', 'plugins', 'platforms')
-os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = qt_plugin_path
 
 import logging
 from dataclasses import dataclass
