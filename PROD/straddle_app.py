@@ -1,17 +1,19 @@
 import sys
 import os
 import logging
+import PyQt6
 from dataclasses import dataclass
 from datetime import datetime, date
 
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QCheckBox, QPushButton, QTextEdit, QGridLayout,
     QGroupBox, QSplitter, QMessageBox, QTabWidget, QComboBox, QToolButton, QScrollArea, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QUrl, QTimer
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtCore import Qt, QUrl, QTimer
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 from dotenv import load_dotenv
 
 # Load variables from .env file if present
@@ -125,7 +127,7 @@ class StraddleApp(QMainWindow):
         main_layout.addLayout(top_bar)
         
         # --- HORIZONTAL SPLITTER: Left (Config+Status) | Right (Tabs) ---
-        self.h_splitter = QSplitter(Qt.Horizontal)
+        self.h_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.h_splitter)
         
         # ---- LEFT PANEL (Config + Status) — shared across all tabs ----
@@ -253,17 +255,17 @@ class StraddleApp(QMainWindow):
         
         self.webview = QWebEngineView()
         self.webview.setHtml(placeholder_html)
-        self.webview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.webview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tabs.addTab(self.webview, "BNF - Straddle")
         
         self.webview_bull = QWebEngineView()
         self.webview_bull.setHtml(placeholder_html)
-        self.webview_bull.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.webview_bull.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tabs.addTab(self.webview_bull, "BNF - Bull Call Spread")
         
         self.webview_bear = QWebEngineView()
         self.webview_bear.setHtml(placeholder_html)
-        self.webview_bear.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.webview_bear.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tabs.addTab(self.webview_bear, "BNF - Bear Put Spread")
         
         self.h_splitter.addWidget(self.tabs)
@@ -452,4 +454,4 @@ if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     window = StraddleApp()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

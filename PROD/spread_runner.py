@@ -11,6 +11,7 @@ Plotly charts per tab.
 import logging
 import math
 import os
+import PyQt6
 import time
 from datetime import datetime
 
@@ -23,11 +24,13 @@ from pyspark.sql import functions as F
 from pyspark.sql.functions import asc, col, lit, monotonically_increasing_id
 from pyspark.sql.functions import round as spark_round
 from pyspark.sql.window import Window
-from PyQt5.QtCore import QThread, pyqtSignal
 
 import utils.enhanced_charts_v3 as ec3
 from utils.chart_utils import OHLC_FLOAT_SCHEMA, get_ROC_added
 from utils.strike_utils import BANKNIFTY_INDEX_TOKEN, get_ATM_Strike, get_Options_DF
+
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QLabel
 
 logger = logging.getLogger(__name__)
 
